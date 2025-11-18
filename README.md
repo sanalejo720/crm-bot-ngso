@@ -323,4 +323,4 @@ Para asistencia técnica, contactar al equipo de desarrollo.
 
 **Versión**: 1.0.0  
 **Última actualización**: Noviembre 2025  
-**Desarrollado por**: NGSO Development Team
+**Desarrollado por**: AS Software - Alejandro Sandoval
