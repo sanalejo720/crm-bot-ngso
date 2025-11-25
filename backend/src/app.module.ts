@@ -29,6 +29,7 @@ import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { DebtorsModule } from './modules/debtors/debtors.module';
 import { PaymentEvidencesModule } from './modules/payment-evidences/payment-evidences.module';
 import { BackupsModule } from './modules/backups/backups.module';
+import { UnidentifiedClientsModule } from './modules/unidentified-clients/unidentified-clients.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { BackupsModule } from './modules/backups/backups.module';
     DebtorsModule,
     PaymentEvidencesModule,
     BackupsModule,
+    UnidentifiedClientsModule,
   ],
   providers: [
     {
