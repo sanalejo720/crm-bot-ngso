@@ -159,10 +159,17 @@ export class UsersService {
   }
 
   /**
-   * Decrementar contador de chats
+   * Decrementar contador de chats (nunca baja de 0)
    */
   async decrementChatCount(id: string): Promise<void> {
-    await this.userRepository.decrement({ id }, 'currentChatsCount', 1);
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (user && user.currentChatsCount > 0) {
+      await this.userRepository.decrement({ id }, 'currentChatsCount', 1);
+    } else if (user) {
+      // Si está en 0 o negativo, forzar a 0
+      user.currentChatsCount = 0;
+      await this.userRepository.save(user);
+    }
   }
 
   /**

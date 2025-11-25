@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import {
   Message,
   MessageType,
@@ -17,6 +17,8 @@ import {
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ChatsService } from '../chats/chats.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { WhatsappNumber } from '../whatsapp/entities/whatsapp-number.entity';
+import { Client, ClientStatus } from '../clients/entities/client.entity';
 
 @Injectable()
 export class MessagesService {
@@ -25,6 +27,10 @@ export class MessagesService {
   constructor(
     @InjectRepository(Message)
     private messageRepository: Repository<Message>,
+    @InjectRepository(WhatsappNumber)
+    private whatsappNumberRepository: Repository<WhatsappNumber>,
+    @InjectRepository(Client)
+    private clientRepository: Repository<Client>,
     private chatsService: ChatsService,
     private whatsappService: WhatsappService,
     private eventEmitter: EventEmitter2,
@@ -58,8 +64,11 @@ export class MessagesService {
 
     this.logger.log(`Mensaje creado: ${savedMessage.id} en chat ${chat.id}`);
 
-    // Emitir evento
-    this.eventEmitter.emit('message.created', savedMessage);
+    // Emitir evento con el formato que esperan los listeners
+    this.eventEmitter.emit('message.created', {
+      message: savedMessage,
+      chat: chat,
+    });
 
     return savedMessage;
   }
@@ -361,5 +370,106 @@ export class MessagesService {
     ]);
 
     return { total, sent, delivered, read, failed };
+  }
+
+  /**
+   * Listener: Procesar mensajes entrantes de WhatsApp
+   */
+  @OnEvent('whatsapp.message.received')
+  async handleIncomingWhatsAppMessage(data: {
+    provider: string;
+    from: string;
+    content: string;
+    type: string;
+    messageId: string;
+    timestamp: Date;
+    sessionName: string;
+  }) {
+    try {
+      this.logger.log(`📨 Mensaje entrante de WhatsApp: ${data.from} - "${data.content}"`);
+
+      // 1. Buscar el número de WhatsApp por sessionName
+      const whatsappNumber = await this.whatsappNumberRepository.findOne({
+        where: { sessionName: data.sessionName },
+        relations: ['campaign'],
+      });
+
+      if (!whatsappNumber) {
+        this.logger.warn(`❌ Número de WhatsApp no encontrado para sessionName: ${data.sessionName}`);
+        return;
+      }
+
+      this.logger.log(`✅ Número WhatsApp encontrado: ${whatsappNumber.displayName} - Campaña: ${whatsappNumber.campaign?.name}`);
+
+      // 2. Buscar o crear cliente
+      let client = await this.clientRepository.findOne({
+        where: { phone: data.from },
+      });
+
+      if (!client) {
+        this.logger.log(`📝 Creando nuevo cliente: ${data.from}`);
+        client = this.clientRepository.create({
+          phone: data.from,
+          fullName: data.from, // Temporal, se actualizará después
+          status: ClientStatus.LEAD, // Nuevo cliente entrante es un lead
+        });
+        client = await this.clientRepository.save(client);
+      }
+
+      // 3. Buscar chat existente por externalId o crear uno nuevo
+      const existingChats = await this.chatsService.findAll({
+        campaignId: whatsappNumber.campaignId,
+      });
+      
+      let chat = existingChats.find(c => 
+        c.contactPhone === data.from &&
+        (c.status === 'waiting' || c.status === 'bot' || c.status === 'active' || c.status === 'pending')
+      );
+
+      if (!chat) {
+        this.logger.log(`💬 Creando nuevo chat para ${data.from}`);
+        chat = await this.chatsService.create({
+          contactName: client.fullName,
+          contactPhone: data.from,
+          externalId: `wpp_${data.from}_${Date.now()}`,
+          campaignId: whatsappNumber.campaignId,
+          whatsappNumberId: whatsappNumber.id,
+        });
+        
+        // Asociar el cliente al chat después de crearlo
+        chat.clientId = client.id;
+        await this.chatsService.update(chat.id, { clientId: client.id } as any);
+      }
+
+      this.logger.log(`✅ Chat encontrado/creado: ${chat.id}`);
+
+      // 4. Guardar el mensaje
+      const message = this.messageRepository.create({
+        chatId: chat.id,
+        content: data.content,
+        type: data.type === 'image' ? MessageType.IMAGE : MessageType.TEXT,
+        direction: MessageDirection.INBOUND,
+        senderType: MessageSenderType.CONTACT,
+        status: MessageStatus.DELIVERED,
+        externalId: data.messageId,
+      });
+
+      const savedMessage = await this.messageRepository.save(message);
+      this.logger.log(`✅ Mensaje guardado: ${savedMessage.id}`);
+
+      // 5. Actualizar última actividad del chat
+      await this.chatsService.updateLastActivity(chat.id, data.content);
+
+      // 6. Emitir evento para Socket.IO y Bot
+      this.eventEmitter.emit('message.created', {
+        message: savedMessage,
+        chat,
+      });
+
+      this.logger.log(`🚀 Evento message.created emitido correctamente`);
+
+    } catch (error) {
+      this.logger.error(`❌ Error procesando mensaje entrante de WhatsApp: ${error.message}`, error.stack);
+    }
   }
 }

@@ -104,13 +104,12 @@ export default function ChatList() {
           </Box>
         ) : (
           chats.map((chat) => {
-            // Validar que exista el cliente
-            if (!chat.client) {
-              return null;
-            }
-            
-            const priority = getClientPriority(chat.client);
+            // Si no hay cliente, usar datos del contacto
+            const priority = chat.client ? getClientPriority(chat.client) : 'MEDIA';
             const priorityColor = getPriorityColor(priority);
+            const displayName = chat.client 
+              ? (chat.client.fullName || chat.client.name)
+              : (chat.externalId || 'Sin contacto');
             
             return (
               <Box key={chat.id}>
@@ -138,7 +137,7 @@ export default function ChatList() {
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Typography variant="subtitle2" component="span" sx={{ flexGrow: 1 }}>
-                            {chat.client.fullName || chat.client.name}
+                            {displayName}
                           </Typography>
                           <Chip
                             label={priority}

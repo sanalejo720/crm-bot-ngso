@@ -37,15 +37,17 @@ import apiService from '../services/api';
 
 interface User {
   id: string;
-  fullName: string;
+  firstName?: string;
+  lastName?: string;
+  fullName?: string; // El backend devuelve fullName
   email: string;
   phone: string;
   isAgent: boolean;
   status: string;
-  role: {
+  role?: {
     id: string;
     name: string;
-  };
+  } | null;
   currentChatsCount?: number;
   maxConcurrentChats?: number;
   agentState?: string;
@@ -66,7 +68,8 @@ export default function UsersManagement() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   
   const [formData, setFormData] = useState({
-    fullName: '',
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
     phone: '',
@@ -99,19 +102,27 @@ export default function UsersManagement() {
   const handleOpenDialog = (user?: User) => {
     if (user) {
       setEditingUser(user);
+      // Separar fullName en firstName y lastName (el backend lo devuelve así)
+      const [firstName = '', ...lastNameParts] = (user.firstName && user.lastName) 
+        ? [user.firstName, user.lastName]
+        : ((user as any).fullName || '').split(' ');
+      const lastName = lastNameParts.join(' ');
+      
       setFormData({
-        fullName: user.fullName,
+        firstName: firstName,
+        lastName: lastName,
         email: user.email,
         password: '',
         phone: user.phone || '',
-        roleId: user.role.id,
+        roleId: user.role?.id || '',
         isAgent: user.isAgent,
         maxConcurrentChats: user.maxConcurrentChats || 5,
       });
     } else {
       setEditingUser(null);
       setFormData({
-        fullName: '',
+        firstName: '',
+        lastName: '',
         email: '',
         password: '',
         phone: '',
@@ -130,12 +141,22 @@ export default function UsersManagement() {
 
   const handleSubmit = async () => {
     try {
+      // Combinar firstName y lastName en fullName para el backend
+      const dataToSend = {
+        ...formData,
+        fullName: `${formData.firstName} ${formData.lastName}`.trim(),
+      };
+      
+      // Remover firstName y lastName ya que el backend usa fullName
+      const { firstName, lastName, ...backendData } = dataToSend as any;
+      
       if (editingUser) {
-        // Actualizar usuario
-        await apiService.patch(`/users/${editingUser.id}`, formData);
+        // Actualizar usuario - remover email y password para updates
+        const { email, password, ...updateData } = backendData;
+        await apiService.patch(`/users/${editingUser.id}`, updateData);
       } else {
-        // Crear usuario
-        await apiService.post('/users', formData);
+        // Crear usuario - enviar todos los datos
+        await apiService.post('/users', backendData);
       }
       
       handleCloseDialog();
@@ -234,11 +255,11 @@ export default function UsersManagement() {
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}>
-                          {user.fullName.charAt(0)}
+                          {(user.fullName || user.firstName || 'U').charAt(0)}
                         </Avatar>
                         <Box>
                           <Typography variant="body2" fontWeight={500}>
-                            {user.fullName}
+                            {user.fullName || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Sin nombre'}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {user.email}
@@ -247,13 +268,17 @@ export default function UsersManagement() {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Chip label={user.role.name} size="small" color="primary" variant="outlined" />
+                      {user.role ? (
+                        <Chip label={user.role.name} size="small" color="primary" variant="outlined" />
+                      ) : (
+                        <Chip label="Sin rol" size="small" color="default" variant="outlined" />
+                      )}
                     </TableCell>
                     <TableCell align="center">
                       {user.isAgent ? (
                         <Chip label="Agente" size="small" color="success" />
                       ) : (
-                        <Chip label="Administrativo" size="small" />
+                        <Chip label="No Agente" size="small" color="default" variant="outlined" />
                       )}
                     </TableCell>
                     <TableCell align="center">
@@ -327,13 +352,22 @@ export default function UsersManagement() {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-            <TextField
-              label="Nombre completo"
-              value={formData.fullName}
-              onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-              fullWidth
-              required
-            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Nombre"
+                value={formData.firstName}
+                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                fullWidth
+                required
+              />
+              <TextField
+                label="Apellido"
+                value={formData.lastName}
+                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                fullWidth
+                required
+              />
+            </Box>
             
             <TextField
               label="Email"
@@ -404,7 +438,7 @@ export default function UsersManagement() {
           <Button 
             onClick={handleSubmit} 
             variant="contained"
-            disabled={!formData.fullName || !formData.email || !formData.roleId || (!editingUser && !formData.password)}
+            disabled={!formData.firstName || !formData.lastName || !formData.email || !formData.roleId || (!editingUser && !formData.password)}
             sx={{
               background: 'linear-gradient(135deg, #ff6b35 0%, #e55a2b 100%)',
               '&:hover': {

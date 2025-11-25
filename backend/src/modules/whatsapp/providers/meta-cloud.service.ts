@@ -120,6 +120,88 @@ export class MetaCloudService {
   }
 
   /**
+   * Enviar mensaje de texto con credenciales específicas
+   */
+  async sendTextMessageWithCredentials(
+    phoneNumberId: string,
+    accessToken: string,
+    to: string,
+    text: string,
+  ): Promise<any> {
+    try {
+      const apiUrl = `https://graph.facebook.com/${this.version}/${phoneNumberId}`;
+      const payload: MetaMessage = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'text',
+        text: { body: text },
+      };
+
+      this.logger.log(`📤 Enviando mensaje a ${to} vía Meta Cloud API`);
+      this.logger.log(`📱 Phone Number ID: ${phoneNumberId}`);
+      this.logger.log(`💬 Contenido: ${text.substring(0, 50)}...`);
+
+      const response = await axios.post(`${apiUrl}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      this.logger.log(`✅ Mensaje enviado exitosamente a ${to}`);
+      this.logger.log(`📨 Message ID: ${response.data.messages[0].id}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error(`❌ Error enviando mensaje via Meta: ${error.message}`);
+      if (error.response) {
+        this.logger.error(`📋 Respuesta de Meta: ${JSON.stringify(error.response.data)}`);
+      }
+      throw new BadRequestException(`Failed to send message via Meta Cloud API: ${error.message}`);
+    }
+  }
+
+  /**
+   * Enviar imagen con credenciales específicas
+   */
+  async sendImageMessageWithCredentials(
+    phoneNumberId: string,
+    accessToken: string,
+    to: string,
+    imageUrl: string,
+    caption?: string,
+  ): Promise<any> {
+    try {
+      const apiUrl = `https://graph.facebook.com/${this.version}/${phoneNumberId}`;
+      const payload: MetaMessage = {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'image',
+        image: { link: imageUrl, caption },
+      };
+
+      this.logger.log(`📤 Enviando imagen a ${to} vía Meta Cloud API`);
+
+      const response = await axios.post(`${apiUrl}/messages`, payload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      this.logger.log(`✅ Imagen enviada exitosamente a ${to}`);
+      return response.data;
+    } catch (error) {
+      this.logger.error(`❌ Error enviando imagen via Meta: ${error.message}`);
+      if (error.response) {
+        this.logger.error(`📋 Respuesta de Meta: ${JSON.stringify(error.response.data)}`);
+      }
+      throw new BadRequestException(`Failed to send image via Meta Cloud API: ${error.message}`);
+    }
+  }
+
+  /**
    * Procesar webhook entrante de Meta
    */
   async processWebhook(payload: any): Promise<void> {

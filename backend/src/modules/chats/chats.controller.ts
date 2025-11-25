@@ -35,7 +35,7 @@ export class ChatsController {
 
   @Get()
   @ApiOperation({ summary: 'Obtener todos los chats (solo supervisores)' })
-  @RequirePermissions({ module: 'chats', action: 'read' })
+  @RequirePermissions({ module: 'chats', action: 'manage' })
   findAll(
     @Query('status') status?: ChatStatus,
     @Query('campaignId') campaignId?: string,
@@ -51,8 +51,16 @@ export class ChatsController {
   }
 
   @Get('my-chats')
-  @ApiOperation({ summary: 'Obtener mis chats asignados (agentes)' })
-  getMyChats(@CurrentUser('id') userId: string) {
+  @ApiOperation({ summary: 'Obtener mis chats asignados (agentes) o todos (supervisores)' })
+  getMyChats(
+    @CurrentUser('id') userId: string,
+    @CurrentUser('role') userRole: { name: string },
+  ) {
+    // Si es Supervisor o Super Admin, devolver todos los chats para supervisión
+    if (userRole.name === 'Supervisor' || userRole.name === 'Super Admin') {
+      return this.chatsService.findAll({});
+    }
+    // Si es Agente, solo sus chats asignados
     return this.chatsService.findAll({ assignedAgentId: userId });
   }
 

@@ -3,7 +3,8 @@
 // Desarrollado por: Alejandro Sandoval - AS Software
 
 import { useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { Box, Typography, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
 import {
   People,
   Chat,
@@ -11,6 +12,8 @@ import {
   HourglassEmpty,
   TrendingUp,
   CheckCircle,
+  Visibility,
+  Assignment,
 } from '@mui/icons-material';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
@@ -44,6 +47,7 @@ interface RecentChat {
 
 export default function ModernSupervisorDashboard() {
   const { user } = useAppSelector((state) => state.auth);
+  const navigate = useNavigate();
   const [sidebarOpen] = useState(true);
   const [, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>({
@@ -57,6 +61,8 @@ export default function ModernSupervisorDashboard() {
     averageDebt: 0,
   });
   const [recentChats, setRecentChats] = useState<RecentChat[]>([]);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedChat, setSelectedChat] = useState<RecentChat | null>(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -98,6 +104,46 @@ export default function ModernSupervisorDashboard() {
       console.error('Error loading dashboard:', error);
       setLoading(false);
     }
+  };
+
+  const handleChatMenuOpen = (event: React.MouseEvent, chat: RecentChat) => {
+    event.stopPropagation();
+    setAnchorEl(event.currentTarget as HTMLElement);
+    setSelectedChat(chat);
+  };
+
+  const handleChatMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedChat(null);
+  };
+
+  const handleViewChat = () => {
+    if (selectedChat) {
+      // Redirigir a AllChatsView con el filtro del chat específico
+      navigate(`/all-chats?chatId=${selectedChat.id}`);
+    }
+    handleChatMenuClose();
+  };
+
+  const handleAssignChat = () => {
+    if (selectedChat) {
+      // Redirigir a AllChatsView con el diálogo de asignación abierto para ese chat
+      navigate(`/all-chats?action=assign&chatId=${selectedChat.id}`);
+    }
+    handleChatMenuClose();
+  };
+
+  const handleOpenWhatsApp = () => {
+    if (selectedChat) {
+      // Abrir el chat dentro del CRM (redirigir al workspace con el chat específico)
+      navigate(`/workspace?chatId=${selectedChat.id}`);
+    }
+    handleChatMenuClose();
+  };
+
+  const handleCardClick = (chat: RecentChat) => {
+    // Al hacer click en la tarjeta, ver los detalles del chat específico
+    navigate(`/all-chats?chatId=${chat.id}`);
   };
 
   return (
@@ -218,12 +264,40 @@ export default function ModernSupervisorDashboard() {
                   unreadCount={0}
                   lastMessageTime={chat.lastMessageAt}
                   campaignName={chat.campaignName}
+                  onCardClick={() => handleCardClick(chat)}
+                  onActionClick={(e) => handleChatMenuOpen(e, chat)}
                 />
               ))}
             </Box>
           </Box>
         </Box>
       </Box>
+
+      {/* Menu de acciones */}
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={handleChatMenuClose}
+      >
+        <MenuItem onClick={handleViewChat}>
+          <ListItemIcon>
+            <Visibility fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Ver detalles</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleAssignChat}>
+          <ListItemIcon>
+            <Assignment fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Asignar agente</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleOpenWhatsApp}>
+          <ListItemIcon>
+            <Chat fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Ver conversación</ListItemText>
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }

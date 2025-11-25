@@ -9,6 +9,7 @@ import type {
   MessageStatus,
   MessageType,
 } from '../types';
+import { notificationService } from './notification.service';
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 
@@ -102,6 +103,16 @@ class SocketService {
   onMessageReceived(handler: (data: MessageReceivedEvent) => void): () => void {
     return this.on<any>('message:new', (payload) => {
       const message = this.normalizeMessagePayload(payload);
+      
+      // Reproducir sonido si el mensaje es entrante (del cliente)
+      if (message.direction === 'inbound' && message.senderType === 'client') {
+        console.log('🔔 [Socket] Nuevo mensaje recibido - Reproduciendo notificación');
+        notificationService.notifyNewMessage(
+          payload.clientPhone || 'Cliente',
+          message.content
+        );
+      }
+      
       handler({
         chatId: message.chatId,
         message,
@@ -116,7 +127,12 @@ class SocketService {
   // Escuchar cuando se asigna un chat (usando el evento del gateway: 'chat:assigned')
   onChatAssigned(handler: (data: any) => void): () => void {
     console.log('🎧 Registrando listener para chat:assigned');
-    return this.on<any>('chat:assigned', handler);
+    return this.on<any>('chat:assigned', (data) => {
+      // Reproducir sonido cuando se asigna un chat
+      console.log('🔔 [Socket] Chat asignado - Reproduciendo notificación');
+      notificationService.notifyChatAssigned(data.clientPhone || 'Cliente nuevo');
+      handler(data);
+    });
   }
 
   // Unirse a sala de agente
@@ -129,6 +145,27 @@ class SocketService {
     this.socket.emit('agent:join', { agentId }, (response: any) => {
       console.log('✅ Respuesta de agent:join:', response);
     });
+  }
+
+  // Unirse a sala de chat específico
+  joinChatRoom(chatId: string): void {
+    if (!this.socket?.connected) {
+      console.error('❌ Socket no conectado, no se puede unir a sala de chat');
+      return;
+    }
+    console.log(`🚪 Uniéndose a sala del chat: ${chatId}`);
+    this.socket.emit('chat:subscribe', { chatId }, (response: any) => {
+      console.log('✅ Respuesta de chat:subscribe:', response);
+    });
+  }
+
+  // Salir de sala de chat
+  leaveChatRoom(chatId: string): void {
+    if (!this.socket?.connected) {
+      return;
+    }
+    console.log(`🚪 Saliendo de sala del chat: ${chatId}`);
+    this.socket.emit('chat:unsubscribe', { chatId });
   }
 
   // Unirse a sala de supervisor

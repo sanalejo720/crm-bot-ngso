@@ -283,16 +283,17 @@ export class AuditService {
   }
 
   @OnEvent('message.created')
-  handleMessageCreated(data: any) {
+  handleMessageCreated(event: { message: any; chat: any }) {
+    const { message } = event;
     this.log({
       action: 'create',
       module: 'messages',
-      entityId: data.id,
+      entityId: message.id,
       entityType: 'Message',
       metadata: {
-        chatId: data.chatId,
-        type: data.type,
-        direction: data.direction,
+        chatId: message.chatId,
+        type: message.type,
+        direction: message.direction,
       },
     });
   }

@@ -109,11 +109,11 @@ export class Chat {
   @Column()
   campaignId: string;
 
-  @ManyToOne(() => WhatsappNumber, (number) => number.chats)
+  @ManyToOne(() => WhatsappNumber, (number) => number.chats, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'whatsappNumberId' })
   whatsappNumber: WhatsappNumber;
 
-  @Column()
+  @Column({ nullable: true })
   whatsappNumberId: string;
 
   @ManyToOne(() => User, (user) => user.assignedChats, { nullable: true })

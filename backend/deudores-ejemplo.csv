@@ -1,0 +1,6 @@
+fullName,documentType,documentNumber,phone,email,address,debtAmount,initialDebtAmount,daysOverdue,lastPaymentDate,promiseDate,status,notes,producto,numeroCredito,fechaVencimiento
+Carlos Morales Rodriguez,CC,1234567890,3001112233,carlos.morales@email.com,Calle 123 #45-67 Bogotá,1500000,2000000,45,2024-10-01,2025-12-15,active,Cliente con historial de mora,Crédito Personal,CRE-2024-001,2024-12-31
+Maria Fernanda Lopez,CC,9876543210,3147512827,maria.lopez@email.com,Carrera 45 #12-34 Medellín,2500000,3000000,60,2024-09-15,,active,Deudor con varios intentos de contacto,Crédito Comercial,CRE-2024-002,2024-11-30
+Juan Pablo Ramirez,CC,5555666677,3201234567,juan.ramirez@email.com,Avenida 80 #50-25 Cali,800000,1000000,30,2024-10-20,2025-11-30,negotiating,Cliente en proceso de acuerdo,Crédito Vehículo,CRE-2024-003,2025-01-15
+Ana Sofia Martinez,CE,1122334455,3109876543,ana.martinez@email.com,Diagonal 30 #15-40 Barranquilla,3200000,4000000,90,2024-07-30,,defaulted,Cliente en mora avanzada,Crédito Hipotecario,CRE-2024-004,2024-10-31
+Pedro Luis Gomez,CC,7788990011,3156789012,pedro.gomez@email.com,Transversal 25 #8-60 Bucaramanga,1200000,1500000,20,2024-11-01,2025-12-01,active,Buen historial de pago,Crédito Consumo,CRE-2024-005,2025-02-28

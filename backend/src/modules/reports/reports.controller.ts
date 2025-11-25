@@ -26,6 +26,60 @@ export class ReportsController {
     return this.reportsService.getSystemMetrics();
   }
 
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Obtener datos del dashboard del supervisor' })
+  @RequirePermissions({ module: 'reports', action: 'read' })
+  async getDashboard() {
+    const metrics = await this.reportsService.getSystemMetrics();
+    const pendingTasks = await this.reportsService.getPendingTasksCount();
+    const collectionSummary = await this.reportsService.getCollectionSummary();
+
+    return {
+      success: true,
+      data: {
+        totalAgents: metrics.totalAgents,
+        activeAgents: metrics.availableAgents + metrics.busyAgents,
+        totalChats: metrics.totalChats,
+        activeChats: metrics.activeChats,
+        totalDebt: collectionSummary.totalDebt,
+        recoveredToday: collectionSummary.recoveredToday,
+        pendingTasks,
+      },
+    };
+  }
+
+  @Get('daily')
+  @ApiOperation({ summary: 'Obtener reporte diario' })
+  @RequirePermissions({ module: 'reports', action: 'read' })
+  @ApiQuery({ name: 'date', required: false, type: String })
+  async getDailyReport(@Query('date') date?: string) {
+    const targetDate = date ? new Date(date) : new Date();
+    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+    
+    const chatsTrend = await this.reportsService.getChatsTrend({ 
+      startDate: startOfDay, 
+      endDate: endOfDay 
+    });
+    
+    return {
+      success: true,
+      data: chatsTrend,
+    };
+  }
+
+  @Get('chats')
+  @ApiOperation({ summary: 'Obtener estadísticas de chats' })
+  @RequirePermissions({ module: 'reports', action: 'read' })
+  @ApiQuery({ name: 'campaignId', required: false, type: String })
+  async getChatStatistics(@Query('campaignId') campaignId?: string) {
+    const distribution = await this.reportsService.getChatsDistribution(campaignId);
+    return {
+      success: true,
+      data: distribution,
+    };
+  }
+
   @Get('system/stats')
   @ApiOperation({ summary: 'Obtener estadísticas del dashboard' })
   @RequirePermissions({ module: 'reports', action: 'read' })

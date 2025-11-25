@@ -123,7 +123,18 @@ export class ClientsService {
    * Actualizar cliente
    */
   async update(id: string, updateClientDto: UpdateClientDto): Promise<Client> {
-    const client = await this.findOne(id);
+    const client = await this.clientRepository.findOne({ where: { id } });
+    
+    if (!client) {
+      throw new NotFoundException(`Cliente ${id} no encontrado`);
+    }
+
+    // Si se actualiza firstName o lastName, reconstruir fullName
+    if (updateClientDto.firstName || updateClientDto.lastName) {
+      const firstName = updateClientDto.firstName || client.fullName?.split(' ')[0] || '';
+      const lastName = updateClientDto.lastName || client.fullName?.split(' ').slice(1).join(' ') || '';
+      updateClientDto.fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Sin nombre';
+    }
 
     Object.assign(client, updateClientDto);
 

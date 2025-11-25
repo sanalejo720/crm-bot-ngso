@@ -42,8 +42,26 @@ const statusConfig = {
     icon: <Schedule fontSize="small" />,
     gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
   },
+  bot: {
+    label: 'Bot',
+    color: 'info' as const,
+    icon: <AccessTime fontSize="small" />,
+    gradient: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+  },
   active: {
     label: 'Activo',
+    color: 'success' as const,
+    icon: <CheckCircle fontSize="small" />,
+    gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+  },
+  pending: {
+    label: 'Pendiente',
+    color: 'warning' as const,
+    icon: <Schedule fontSize="small" />,
+    gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+  },
+  resolved: {
+    label: 'Resuelto',
     color: 'success' as const,
     icon: <CheckCircle fontSize="small" />,
     gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
@@ -73,7 +91,12 @@ export default function ChatCard({
   onCardClick,
   onActionClick,
 }: ChatCardProps) {
-  const config = statusConfig[status];
+  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.waiting || {
+    label: 'Desconocido',
+    color: 'default' as const,
+    icon: <Schedule fontSize="small" />,
+    gradient: 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)',
+  };
 
   const getInitials = (name: string) => {
     return name

@@ -210,9 +210,25 @@ export class RolesService {
       'reports',
       'audit',
       'settings',
+      'templates',
     ];
 
     const actions = ['create', 'read', 'update', 'delete'];
+
+    // Permisos adicionales específicos por módulo
+    const specialPermissions = [
+      { module: 'chats', action: 'assign' },
+      { module: 'chats', action: 'transfer' },
+      { module: 'chats', action: 'close' },
+      { module: 'chats', action: 'manage' },
+      { module: 'users', action: 'activate' },
+      { module: 'users', action: 'deactivate' },
+      { module: 'campaigns', action: 'activate' },
+      { module: 'campaigns', action: 'pause' },
+      { module: 'reports', action: 'export' },
+      { module: 'whatsapp', action: 'send' },
+      { module: 'templates', action: 'use' },
+    ];
 
     for (const module of modules) {
       for (const action of actions) {
@@ -230,6 +246,24 @@ export class RolesService {
           await this.permissionRepository.save(permission);
           this.logger.log(`Permiso creado: ${module}.${action}`);
         }
+      }
+    }
+
+    // Crear permisos especiales
+    for (const { module, action } of specialPermissions) {
+      const existing = await this.permissionRepository.findOne({
+        where: { module, action },
+      });
+
+      if (!existing) {
+        const permission = this.permissionRepository.create({
+          module,
+          action,
+          description: `${action} ${module}`,
+        });
+
+        await this.permissionRepository.save(permission);
+        this.logger.log(`Permiso especial creado: ${module}.${action}`);
       }
     }
 
@@ -254,13 +288,18 @@ export class RolesService {
       });
       await this.roleRepository.save(superAdmin);
       this.logger.log('Rol Super Admin creado');
+    } else {
+      // Actualizar permisos existentes
+      superAdmin.permissions = allPermissions;
+      await this.roleRepository.save(superAdmin);
+      this.logger.log('Rol Super Admin actualizado con TODOS los permisos');
     }
 
     // Supervisor
     const supervisorPermissions = await this.permissionRepository
       .createQueryBuilder('permission')
       .where('permission.module IN (:...modules)', {
-        modules: ['campaigns', 'chats', 'messages', 'clients', 'tasks', 'reports', 'users'],
+        modules: ['campaigns', 'chats', 'messages', 'clients', 'tasks', 'reports', 'users', 'whatsapp'],
       })
       .getMany();
 
@@ -273,16 +312,21 @@ export class RolesService {
       });
       await this.roleRepository.save(supervisor);
       this.logger.log('Rol Supervisor creado');
+    } else {
+      // Actualizar permisos existentes
+      supervisor.permissions = supervisorPermissions;
+      await this.roleRepository.save(supervisor);
+      this.logger.log('Rol Supervisor actualizado con nuevos permisos');
     }
 
-    // Agente
+    // Agente - Ahora con permisos CREATE para chats, messages y tasks
     const agentPermissions = await this.permissionRepository
       .createQueryBuilder('permission')
       .where('permission.module IN (:...modules)', {
         modules: ['chats', 'messages', 'clients', 'tasks'],
       })
       .andWhere('permission.action IN (:...actions)', {
-        actions: ['read', 'update'],
+        actions: ['read', 'create', 'update'],
       })
       .getMany();
 
@@ -295,6 +339,11 @@ export class RolesService {
       });
       await this.roleRepository.save(agent);
       this.logger.log('Rol Agente creado');
+    } else {
+      // Actualizar permisos existentes
+      agent.permissions = agentPermissions;
+      await this.roleRepository.save(agent);
+      this.logger.log('Rol Agente actualizado con nuevos permisos');
     }
 
     // Calidad
