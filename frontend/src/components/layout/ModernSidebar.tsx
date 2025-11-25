@@ -37,6 +37,7 @@ import {
   SmartToy,
   Receipt,
   Backup,
+  PersonSearch,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../hooks/redux';
@@ -109,6 +110,13 @@ const menuItems: MenuItem[] = [
     path: '/payment-evidences',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
+    {
+      id: 'unidentified-clients',
+      label: 'Clientes No Identificados',
+      icon: <PersonSearch />,
+      path: '/unidentified-clients',
+      roles: ['Supervisor', 'Administrador', 'Super Admin'],
+    },
   {
     id: 'reports',
     label: 'Reportes',

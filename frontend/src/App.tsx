@@ -25,6 +25,7 @@ import BotFlowsPage from './pages/BotFlowsPage'
 import BotFlowEditorPage from './pages/BotFlowEditorPage'
 import PaymentEvidencesPage from './pages/PaymentEvidencesPage'
 import BackupsPage from './pages/BackupsPage'
+import UnidentifiedClientsPage from './pages/UnidentifiedClientsPage'
 
 function App() {
   return (
@@ -63,6 +64,7 @@ function App() {
           <Route path="/bot-flows" element={<BotFlowsPage />} />
           <Route path="/bot-flows/:id/editor" element={<BotFlowEditorPage />} />
           <Route path="/backups" element={<BackupsPage />} />
+          <Route path="/unidentified-clients" element={<UnidentifiedClientsPage />} />
         </Route>
 
         {/* Rutas accesibles para todos los usuarios autenticados */}
