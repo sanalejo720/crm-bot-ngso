@@ -104,23 +104,29 @@ export class WhatsappService {
     type: MessageType,
     mediaUrl?: string,
   ) {
-    const params = {
-      phoneNumberId: whatsappNumber.phoneNumberId,
-      accessToken: whatsappNumber.accessToken,
-      to,
-      type,
-      content,
-      mediaUrl,
-    };
+    this.logger.log(`📤 Enviando via Meta Cloud - WhatsApp ID: ${whatsappNumber.id}`);
+    this.logger.log(`📱 Phone Number ID: ${whatsappNumber.phoneNumberId}`);
+    this.logger.log(`👤 Destino: ${to}, Tipo: ${type}`);
 
     if (type === MessageType.TEXT) {
-      const result = await this.metaCloudService.sendTextMessage(to, content);
+      const result = await this.metaCloudService.sendTextMessageWithCredentials(
+        whatsappNumber.phoneNumberId,
+        whatsappNumber.accessToken,
+        to,
+        content,
+      );
       return {
         messageId: result.messages[0].id,
         metadata: result,
       };
     } else if (type === MessageType.IMAGE) {
-      const result = await this.metaCloudService.sendImageMessage(to, mediaUrl, content);
+      const result = await this.metaCloudService.sendImageMessageWithCredentials(
+        whatsappNumber.phoneNumberId,
+        whatsappNumber.accessToken,
+        to,
+        mediaUrl,
+        content,
+      );
       return {
         messageId: result.messages[0].id,
         metadata: result,
@@ -140,7 +146,10 @@ export class WhatsappService {
     type: MessageType,
     mediaUrl?: string,
   ) {
-    const sessionName = whatsappNumber.sessionName || `session-${whatsappNumber.id}`;
+    const sessionName = whatsappNumber.phoneNumber; // Usar número como sessionName
+    
+    this.logger.log(`📤 Enviando via WPPConnect - WhatsApp ID: ${whatsappNumber.id}, Phone: ${whatsappNumber.phoneNumber}`);
+    this.logger.log(`📱 SessionName: ${sessionName}, Destino: ${to}, Tipo: ${type}`);
 
     if (type === MessageType.TEXT) {
       const result = await this.wppConnectService.sendTextMessage(sessionName, to, content);
@@ -174,12 +183,12 @@ export class WhatsappService {
       throw new BadRequestException('Este número no usa WPPConnect');
     }
 
-    const sessionName = whatsappNumber.sessionName || `session-${whatsappNumberId}`;
+    const sessionName = whatsappNumber.phoneNumber; // Usar número de teléfono como sessionName
 
-    this.logger.log(`Iniciando sesión WPPConnect: ${sessionName}`);
+    this.logger.log(`Iniciando sesión WPPConnect: ${sessionName} (ID: ${whatsappNumberId})`);
 
     try {
-      const result = await this.wppConnectService.startSession(sessionName);
+      const result = await this.wppConnectService.startSession(sessionName, whatsappNumberId);
 
       await this.whatsappNumberRepository.update(whatsappNumberId, {
         status: ConnectionStatus.QR_WAITING,
@@ -280,5 +289,25 @@ export class WhatsappService {
     return this.whatsappNumberRepository.find({
       where: { campaignId, isActive: true },
     });
+  }
+
+  /**
+   * Debug: Ver sesiones activas en WPPConnect
+   */
+  async getDebugSessions() {
+    const sessions = this.wppConnectService.getActiveSessions();
+    const numbers = await this.whatsappNumberRepository.find({
+      where: { isActive: true },
+    });
+
+    return {
+      wppConnectSessions: sessions,
+      databaseNumbers: numbers.map(n => ({
+        id: n.id,
+        phone: n.phoneNumber,
+        sessionName: n.sessionName,
+        status: n.status,
+      })),
+    };
   }
 }

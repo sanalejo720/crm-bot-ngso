@@ -22,7 +22,10 @@ interface AuthenticatedSocket extends Socket {
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      'http://localhost:5174', // Puerto alternativo de Vite
+    ],
     credentials: true,
   },
   namespace: '/events',
@@ -45,10 +48,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const token = client.handshake.auth?.token || client.handshake.headers?.authorization?.replace('Bearer ', '');
 
       if (!token) {
-        this.logger.warn(`Cliente sin token rechazado: ${client.id}`);
+        this.logger.warn(`❌ Cliente sin token rechazado: ${client.id}`);
         client.disconnect();
         return;
       }
+
+      this.logger.log(`🔍 Validando token para cliente: ${client.id}`);
 
       // Validar JWT
       const payload = await this.jwtService.verifyAsync(token);
@@ -67,11 +72,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Si es supervisor, unir a sala de supervisores
-      if (payload.role?.name === 'Supervisor' || payload.role?.name === 'Super Admin') {
+      if (payload.role?.name === 'Supervisor' || payload.role?.name === 'Super Admin' || payload.role?.name === 'Administrador') {
         client.join('supervisors');
       }
 
-      this.logger.log(`Cliente conectado: ${payload.email} (${client.id})`);
+      this.logger.log(`✅ Cliente conectado exitosamente: ${payload.email} (${client.id})`);
 
       // Notificar conexión
       this.server.to('supervisors').emit('agent:online', {
@@ -80,7 +85,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         timestamp: new Date(),
       });
     } catch (error) {
-      this.logger.error(`Error en autenticación WebSocket: ${error.message}`);
+      this.logger.error(`❌ Error en autenticación WebSocket (${client.id}): ${error.message}`);
       client.disconnect();
     }
   }
@@ -312,7 +317,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    * Evento: Nuevo mensaje
    */
   @OnEvent('message.created')
-  handleMessageCreated(message: Message) {
+  handleMessageCreated(event: { message: Message; chat: any }) {
+    const { message, chat } = event;
     this.logger.log(`Evento message.created: ${message.id} en chat ${message.chatId}`);
 
     // Notificar a todos en el chat
@@ -329,11 +335,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     // Si el chat está asignado, notificar al agente
-    if (message.chat?.assignedAgentId) {
-      this.server.to(`user:${message.chat.assignedAgentId}`).emit('message:new', {
+    if (chat?.assignedAgentId) {
+      this.server.to(`user:${chat.assignedAgentId}`).emit('message:new', {
         messageId: message.id,
         chatId: message.chatId,
+        type: message.type,
+        direction: message.direction,
+        senderType: message.senderType,
         content: message.content,
+        mediaUrl: message.mediaUrl,
+        status: message.status,
         timestamp: message.createdAt,
       });
     }
@@ -367,6 +378,74 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userName: data.userName,
       state: data.state,
       timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: QR Code de WhatsApp generado
+   */
+  @OnEvent('whatsapp.qrcode.generated')
+  handleWhatsAppQRGenerated(data: { numberId: string; qrCode: string; sessionName?: string }) {
+    this.logger.log(`Evento whatsapp.qrcode.generated: ${data.numberId || data.sessionName}`);
+
+    // Notificar a todos los supervisores y admins
+    this.server.emit('whatsapp.qrcode.generated', {
+      numberId: data.numberId,
+      sessionName: data.sessionName,
+      qrCode: data.qrCode,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: Estado de sesión WhatsApp actualizado
+   */
+  @OnEvent('whatsapp.session.status')
+  handleWhatsAppSessionStatus(data: { sessionName: string; status: string }) {
+    this.logger.log(`Evento whatsapp.session.status: ${data.sessionName} -> ${data.status}`);
+
+    // Notificar cambio de estado
+    this.server.emit('whatsapp.session.status', {
+      sessionName: data.sessionName,
+      status: data.status,
+      timestamp: new Date(),
+    });
+
+    // Si está conectado, emitir evento específico
+    if (data.status === 'isLogged' || data.status === 'qrReadSuccess') {
+      this.server.emit('whatsapp.session.connected', {
+        sessionName: data.sessionName,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * Evento: Sesión WhatsApp desconectada
+   */
+  @OnEvent('whatsapp.session.disconnected')
+  handleWhatsAppSessionDisconnected(data: { numberId: string }) {
+    this.logger.log(`Evento whatsapp.session.disconnected: ${data.numberId}`);
+
+    this.server.emit('whatsapp.session.disconnected', {
+      numberId: data.numberId,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: Mensaje de WhatsApp recibido
+   */
+  @OnEvent('whatsapp.message.received')
+  handleWhatsAppMessageReceived(data: any) {
+    this.logger.log(`Evento whatsapp.message.received: ${data.from}`);
+
+    // Este evento será procesado por el sistema de chats
+    // Aquí solo notificamos que llegó un mensaje de WhatsApp
+    this.server.to('agents').emit('whatsapp.message.incoming', {
+      from: data.from,
+      content: data.content,
+      timestamp: data.timestamp,
     });
   }
 

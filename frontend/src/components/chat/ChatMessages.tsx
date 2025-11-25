@@ -27,24 +27,35 @@ interface ChatMessagesProps {
 export default function ChatMessages({ chat }: ChatMessagesProps) {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const { items: messagesMap, isSending } = useAppSelector((state) => state.messages);
+  const { items: messagesMap, isSending, isLoading } = useAppSelector((state) => state.messages);
   const messages = messagesMap[chat.id] || [];
   
   const [messageText, setMessageText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Detectar si el usuario es Supervisor o Super Admin (modo solo lectura)
+  const isReadOnly = user?.role?.name === 'Supervisor' || user?.role?.name === 'Super Admin';
+
   useEffect(() => {
     // Cargar mensajes del chat
     dispatch(fetchMessages(chat.id));
 
+    // Unirse al room del chat para recibir eventos en tiempo real
+    socketService.joinChatRoom(chat.id);
+
     // Escuchar nuevos mensajes
     const unsubscribe = socketService.onMessageReceived((event) => {
       if (event.chatId === chat.id) {
+        console.log('✅ [ChatMessages] Nuevo mensaje recibido:', event.message);
         dispatch(addMessage(event.message));
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      // Salir del room cuando se cierra el chat
+      socketService.leaveChatRoom(chat.id);
+    };
   }, [chat.id, dispatch]);
 
   useEffect(() => {
@@ -91,6 +102,13 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
     return message.direction === 'outbound' && message.senderType === 'agent';
   };
 
+  const clientName =
+    chat.client?.fullName ||
+    chat.client?.name ||
+    chat.externalId ||
+    'Sin datos del cliente';
+  const clientPhone = chat.client?.phone || chat.externalId || 'Teléfono no disponible';
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header del chat */}
@@ -103,10 +121,31 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
           borderColor: 'divider',
         }}
       >
-        <Typography variant="h6">{chat.client.name}</Typography>
-        <Typography variant="body2" color="text.secondary">
-          {chat.client.phone}
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box>
+            <Typography variant="h6">{clientName}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {clientPhone}
+            </Typography>
+          </Box>
+          {isReadOnly && (
+            <Box
+              sx={{
+                px: 2,
+                py: 0.5,
+                bgcolor: 'warning.light',
+                borderRadius: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+              }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 600, color: 'warning.dark' }}>
+                🔍 MODO SUPERVISIÓN
+              </Typography>
+            </Box>
+          )}
+        </Box>
       </Paper>
 
       {/* Área de mensajes */}
@@ -118,7 +157,7 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
           backgroundColor: '#f5f5f5',
         }}
       >
-        {messages.length === 0 ? (
+        {isLoading ? (
           <Box
             sx={{
               height: '100%',
@@ -130,6 +169,19 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
           >
             <CircularProgress size={24} sx={{ mr: 2 }} />
             Cargando mensajes...
+          </Box>
+        ) : messages.length === 0 ? (
+          <Box
+            sx={{
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'text.secondary',
+              fontStyle: 'italic',
+            }}
+          >
+            No hay mensajes en este chat todavía.
           </Box>
         ) : (
           messages.map((message) => (
@@ -202,7 +254,7 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
           fullWidth
           multiline
           maxRows={4}
-          placeholder="Escribe un mensaje..."
+          placeholder={isReadOnly ? "Modo supervisión - Solo lectura" : "Escribe un mensaje..."}
           value={messageText}
           onChange={(e) => setMessageText(e.target.value)}
           onKeyDown={(e) => {
@@ -211,13 +263,13 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
               handleSendMessage(e);
             }
           }}
-          disabled={isSending || chat.status === 'closed'}
+          disabled={isSending || chat.status === 'closed' || isReadOnly}
           sx={{ mr: 1 }}
         />
         <IconButton
           type="submit"
           color="primary"
-          disabled={messageText.trim() === '' || isSending || chat.status === 'closed'}
+          disabled={messageText.trim() === '' || isSending || chat.status === 'closed' || isReadOnly}
           sx={{
             backgroundColor: 'primary.main',
             color: 'white',

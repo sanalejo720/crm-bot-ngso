@@ -45,7 +45,7 @@ import {
 } from '../../utils/helpers';
 
 interface DebtorPanelProps {
-  client: Client;
+  client: Client | null;
   chat: Chat;
 }
 
@@ -53,7 +53,18 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
   const dispatch = useAppDispatch();
   const [promiseDialog, setPromiseDialog] = useState(false);
   const [promiseDate, setPromiseDate] = useState('');
-  const [promiseAmount, setPromiseAmount] = useState(client.debtAmount);
+  const [promiseAmount, setPromiseAmount] = useState(client?.debtAmount || 0);
+
+  // Si no hay cliente, mostrar mensaje
+  if (!client) {
+    return (
+      <Box sx={{ p: 3, textAlign: 'center' }}>
+        <Alert severity="info">
+          Este chat no tiene un cliente asociado.
+        </Alert>
+      </Box>
+    );
+  }
 
   const priority = getClientPriority(client);
   const priorityColor = getPriorityColor(priority);

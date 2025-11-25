@@ -24,6 +24,11 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { QuickRepliesModule } from './modules/quick-replies/quick-replies.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { DebtorsModule } from './modules/debtors/debtors.module';
+import { PaymentEvidencesModule } from './modules/payment-evidences/payment-evidences.module';
+import { BackupsModule } from './modules/backups/backups.module';
 
 @Module({
   imports: [
@@ -90,6 +95,11 @@ import { AuditModule } from './modules/audit/audit.module';
     TasksModule,
     ReportsModule,
     AuditModule,
+    QuickRepliesModule,
+    MonitoringModule,
+    DebtorsModule,
+    PaymentEvidencesModule,
+    BackupsModule,
   ],
   providers: [
     {

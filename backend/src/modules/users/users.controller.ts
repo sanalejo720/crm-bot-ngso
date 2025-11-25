@@ -72,4 +72,11 @@ export class UsersController {
   getAvailableAgents(@Param('campaignId') campaignId: string) {
     return this.usersService.getAvailableAgents(campaignId);
   }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Cambiar estado del usuario' })
+  @RequirePermissions({ module: 'users', action: 'update' })
+  changeStatus(@Param('id') id: string, @Body() body: { status: UserStatus }) {
+    return this.usersService.update(id, { status: body.status });
+  }
 }

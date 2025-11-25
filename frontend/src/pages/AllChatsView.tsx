@@ -89,6 +89,29 @@ export default function AllChatsView() {
     severity: 'info' 
   });
 
+  // Leer query params de la URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const chatId = params.get('chatId');
+    const action = params.get('action');
+    
+    if (chatId) {
+      // Esperar a que los chats se carguen
+      if (chats.length > 0) {
+        const chat = chats.find(c => c.id === chatId);
+        if (chat) {
+          if (action === 'assign') {
+            handleAssignClick(chat);
+          } else {
+            handleViewDetails(chat);
+          }
+          // Limpiar los query params de la URL
+          window.history.replaceState({}, '', '/all-chats');
+        }
+      }
+    }
+  }, [chats]);
+
   useEffect(() => {
     loadData();
   }, [filterStatus]);

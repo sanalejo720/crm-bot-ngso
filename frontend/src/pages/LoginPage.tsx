@@ -57,25 +57,33 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #1a237e 0%, #0d47a1 50%, #01579b 100%)',
         padding: 2,
       }}
     >
-      <Card sx={{ maxWidth: 400, width: '100%' }}>
+      <Card sx={{ maxWidth: 450, width: '100%', boxShadow: 6 }}>
         <CardContent sx={{ p: 4 }}>
-      {/* Logo NGS&O */}
-          <Box sx={{ textAlign: 'center', mb: 3 }}>
+          {/* Logo NGS&O */}
+          <Box 
+            sx={{ 
+              textAlign: 'center', 
+              mb: 3,
+              p: 3,
+              borderRadius: 2,
+              background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+            }}
+          >
             <img 
               src="/ngso-logo.svg" 
               alt="NGS&O Logo" 
-              style={{ width: '100%', maxWidth: '280px', marginBottom: '16px' }}
+              style={{ width: '100%', maxWidth: '280px' }}
             />
           </Box>
 
-          {/* Logo y título */}
+          {/* Título */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
             <WhatsApp sx={{ fontSize: 50, color: '#25D366', mb: 1 }} />
-            <Typography variant="h5" fontWeight="bold" gutterBottom>
+            <Typography variant="h5" fontWeight="bold" gutterBottom sx={{ color: '#1a237e' }}>
               CRM Gestión de Cobranzas
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -147,10 +155,13 @@ export default function LoginPage() {
                 disabled={isLoading}
                 sx={{
                   py: 1.5,
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #1a237e 0%, #0d47a1 100%)',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #0d47a1 0%, #01579b 100%)',
+                  },
                 }}
               >
-                {isLoading ? <CircularProgress size={24} /> : 'Iniciar Sesión'}
+                {isLoading ? <CircularProgress size={24} sx={{ color: 'white' }} /> : 'Iniciar Sesión'}
               </Button>
             </form>
           ) : (
@@ -182,10 +193,13 @@ export default function LoginPage() {
                 disabled={isLoading || twoFactorCode.length !== 6}
                 sx={{
                   py: 1.5,
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #1a237e 0%, #0d47a1 100%)',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #0d47a1 0%, #01579b 100%)',
+                  },
                 }}
               >
-                {isLoading ? <CircularProgress size={24} /> : 'Verificar'}
+                {isLoading ? <CircularProgress size={24} sx={{ color: 'white' }} /> : 'Verificar'}
               </Button>
             </form>
           )}

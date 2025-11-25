@@ -2,7 +2,7 @@
 // Desarrollado por: Alejandro Sandoval - AS Software
 
 import type { Priority, Client } from '../types';
-import { format, formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 // Calcular prioridad según días de mora
@@ -72,12 +72,27 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
-// Formatear fecha
+// Formatear fecha completa (Colombia UTC-5)
 export function formatDate(date: string | Date): string {
-  return format(new Date(date), "dd/MM/yyyy 'a las' HH:mm", { locale: es });
+  const dateObj = new Date(date);
+  
+  // Usar Intl.DateTimeFormat para fecha y hora en zona horaria de Colombia
+  const formatter = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  const formatted = formatter.format(dateObj);
+  // Formato: "24/11/2025, 16:30" -> "24/11/2025 a las 16:30"
+  return formatted.replace(',', ' a las');
 }
 
-// Formatear fecha relativa ("hace 2 horas")
+// Formatear fecha relativa ("hace 2 horas") - Colombia
 export function formatRelativeDate(date: string | Date | null | undefined): string {
   if (!date) return 'Sin fecha';
   
@@ -86,17 +101,39 @@ export function formatRelativeDate(date: string | Date | null | undefined): stri
     return 'Fecha inválida';
   }
   
+  // date-fns usa la zona horaria local del navegador, lo cual es correcto
+  // para cálculos relativos ("hace X tiempo")
   return formatDistanceToNow(parsedDate, { addSuffix: true, locale: es });
 }
 
-// Formatear solo fecha (sin hora)
+// Formatear solo fecha (sin hora) - Colombia
 export function formatDateOnly(date: string | Date): string {
-  return format(new Date(date), 'dd/MM/yyyy', { locale: es });
+  const dateObj = new Date(date);
+  
+  // Usar Intl.DateTimeFormat para solo fecha en zona horaria de Colombia
+  const formatter = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+  
+  return formatter.format(dateObj);
 }
 
-// Formatear solo hora
+// Formatear solo hora (Colombia UTC-5)
 export function formatTimeOnly(date: string | Date): string {
-  return format(new Date(date), 'HH:mm', { locale: es });
+  const dateObj = new Date(date);
+  
+  // Usar Intl.DateTimeFormat para obtener solo hora y minutos en zona horaria de Colombia
+  const formatter = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  
+  return formatter.format(dateObj);
 }
 
 // Obtener iniciales del nombre

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Patch,
   UseGuards,
   Query,
 } from '@nestjs/common';
@@ -60,6 +61,20 @@ export class MessagesController {
     );
   }
 
+  @Get()
+  @ApiOperation({ summary: 'Obtener mensajes por chatId (query param)' })
+  @RequirePermissions({ module: 'messages', action: 'read' })
+  findMessages(
+    @Query('chatId') chatId: string,
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+  ) {
+    if (!chatId) {
+      return { success: false, message: 'chatId is required' };
+    }
+    return this.messagesService.findByChatId(chatId, { limit, offset });
+  }
+
   @Get('chat/:chatId')
   @ApiOperation({ summary: 'Obtener mensajes de un chat' })
   @RequirePermissions({ module: 'messages', action: 'read' })
@@ -76,6 +91,13 @@ export class MessagesController {
   @RequirePermissions({ module: 'messages', action: 'read' })
   findOne(@Param('id') id: string) {
     return this.messagesService.findOne(id);
+  }
+
+  @Patch(':id/read')
+  @ApiOperation({ summary: 'Marcar mensaje como leído' })
+  @RequirePermissions({ module: 'messages', action: 'update' })
+  markMessageAsRead(@Param('id') id: string) {
+    return this.messagesService.markAsRead(id);
   }
 
   @Post('chat/:chatId/mark-read')

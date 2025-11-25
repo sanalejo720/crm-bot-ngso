@@ -30,6 +30,13 @@ import {
   Notifications,
   Help,
   WhatsApp,
+  TextSnippet,
+  MonitorHeart,
+  Security,
+  AttachMoney,
+  SmartToy,
+  Receipt,
+  Backup,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../hooks/redux';
@@ -48,6 +55,7 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
+  // 📊 DASHBOARDS
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -63,6 +71,15 @@ const menuItems: MenuItem[] = [
     roles: ['Agente'],
   },
   {
+    id: 'financial',
+    label: 'Dashboard Financiero',
+    icon: <AttachMoney />,
+    path: '/financial',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+
+  // 💬 GESTIÓN DE CHATS
+  {
     id: 'workspace',
     label: 'Mis Chats',
     icon: <Chat />,
@@ -77,17 +94,19 @@ const menuItems: MenuItem[] = [
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
   {
-    id: 'users',
-    label: 'Usuarios',
-    icon: <People />,
-    path: '/users',
-    roles: ['Administrador', 'Super Admin'],
+    id: 'templates',
+    label: 'Plantillas',
+    icon: <TextSnippet />,
+    path: '/templates',
+    roles: ['Supervisor', 'Administrador', 'Super Admin', 'Agente'],
   },
+
+  // 💰 GESTIÓN FINANCIERA
   {
-    id: 'campaigns',
-    label: 'Campañas',
-    icon: <Campaign />,
-    path: '/campaigns',
+    id: 'payment-evidences',
+    label: 'Evidencias de Pago',
+    icon: <Receipt />,
+    path: '/payment-evidences',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
   {
@@ -96,6 +115,61 @@ const menuItems: MenuItem[] = [
     icon: <Assessment />,
     path: '/reports',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+
+  // 📢 CAMPAÑAS Y OPERACIONES
+  {
+    id: 'campaigns',
+    label: 'Campañas',
+    icon: <Campaign />,
+    path: '/campaigns',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'bot-flows',
+    label: 'Flujos de Bot',
+    icon: <SmartToy />,
+    path: '/bot-flows',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+
+  // 🔧 CONFIGURACIÓN Y SISTEMA
+  {
+    id: 'whatsapp',
+    label: 'Números WhatsApp',
+    icon: <WhatsApp />,
+    path: '/whatsapp',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'monitoring',
+    label: 'Monitoreo Sesiones',
+    icon: <MonitorHeart />,
+    path: '/monitoring',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'users',
+    label: 'Usuarios',
+    icon: <People />,
+    path: '/users',
+    roles: ['Administrador', 'Super Admin'],
+  },
+  {
+    id: 'roles',
+    label: 'Roles y Permisos',
+    icon: <Security />,
+    path: '/roles',
+    roles: ['Administrador', 'Super Admin'],
+  },
+
+  // 🔒 ADMINISTRACIÓN IT
+  {
+    id: 'backups',
+    label: 'Backups IT',
+    icon: <Backup />,
+    path: '/backups',
+    roles: ['Super Admin'],
   },
 ];
 

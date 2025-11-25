@@ -10,6 +10,7 @@ import {
   Min,
   IsArray,
   IsUUID,
+  IsBoolean,
 } from 'class-validator';
 import { UserStatus } from '../entities/user.entity';
 
@@ -48,6 +49,11 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  @ApiPropertyOptional({ example: true, description: 'Indica si el usuario es un agente' })
+  @IsOptional()
+  @IsBoolean()
+  isAgent?: boolean;
 
   @ApiPropertyOptional({ example: 5, description: 'Máximo de chats concurrentes' })
   @IsOptional()

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Box } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { fetchMyChats } from '../store/slices/chatsSlice';
+import { fetchMyChats, setSelectedChat } from '../store/slices/chatsSlice';
 import { socketService } from '../services/socket.service';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
@@ -16,7 +16,22 @@ export default function AgentWorkspace() {
   const dispatch = useAppDispatch();
   const [sidebarOpen] = useState(true);
   const { user } = useAppSelector((state) => state.auth);
-  const { selectedChat } = useAppSelector((state) => state.chats);
+  const { selectedChat, items: myChats } = useAppSelector((state) => state.chats);
+
+  // Manejar chatId desde query params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const chatId = params.get('chatId');
+    
+    if (chatId && myChats.length > 0) {
+      const chat = myChats.find((c: any) => c.id === chatId);
+      if (chat) {
+        dispatch(setSelectedChat(chat));
+        // Limpiar query params
+        window.history.replaceState({}, '', '/workspace');
+      }
+    }
+  }, [myChats, dispatch]);
 
   useEffect(() => {
     // Cargar chats del agente
@@ -107,7 +122,7 @@ export default function AgentWorkspace() {
 
         {/* Panel de deudor (derecha) */}
         <Box sx={{ height: '100%', borderLeft: 1, borderColor: 'divider', overflow: 'hidden' }}>
-          {selectedChat ? (
+          {selectedChat && selectedChat.client ? (
             <DebtorPanel client={selectedChat.client} chat={selectedChat} />
           ) : (
             <Box
@@ -121,7 +136,7 @@ export default function AgentWorkspace() {
                 textAlign: 'center',
               }}
             >
-              La información del deudor aparecerá aquí
+              {selectedChat ? 'Este chat no tiene cliente asociado' : 'La información del deudor aparecerá aquí'}
             </Box>
           )}
         </Box>

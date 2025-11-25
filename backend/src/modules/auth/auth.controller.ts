@@ -49,6 +49,15 @@ export class AuthController {
     return user;
   }
 
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Refrescar token de acceso' })
+  async refresh(@Body() body: { refreshToken: string }) {
+    // Extraer userId del refresh token decodificado
+    const decoded = this.authService['jwtService'].decode(body.refreshToken) as any;
+    return this.authService.refreshToken(decoded?.sub, body.refreshToken);
+  }
+
   @Post('2fa/generate')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

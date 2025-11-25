@@ -45,12 +45,9 @@ export const sendMessage = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
-      const response = await apiService.post('/messages', {
+      const response = await apiService.post('/messages/send', {
         chatId,
-        type: 'text',
         content,
-        direction: 'outbound',
-        senderType: 'agent',
       });
       const result = response.data || response;
       return result.data || result;

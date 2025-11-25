@@ -72,6 +72,13 @@ export class RolesController {
     return this.rolesService.update(id, updateRoleDto);
   }
 
+  @Get(':id/permissions')
+  @ApiOperation({ summary: 'Obtener permisos de un rol' })
+  @RequirePermissions({ module: 'roles', action: 'read' })
+  getRolePermissions(@Param('id') id: string) {
+    return this.rolesService.findOne(id);
+  }
+
   @Post(':id/permissions')
   @ApiOperation({ summary: 'Agregar permisos al rol' })
   @RequirePermissions({ module: 'roles', action: 'update' })
