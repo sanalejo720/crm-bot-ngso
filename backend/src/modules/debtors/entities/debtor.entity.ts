@@ -5,7 +5,10 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
+import { Campaign } from '../../campaigns/entities/campaign.entity';
 
 export enum DocumentType {
   CC = 'CC', // Cédula de Ciudadanía
@@ -75,6 +78,14 @@ export class Debtor {
     fechaVencimiento?: string;
     [key: string]: any;
   };
+
+  // Relación con Campaign
+  @ManyToOne(() => Campaign, (campaign) => campaign.debtors, { nullable: true })
+  @JoinColumn({ name: 'campaignId' })
+  campaign: Campaign;
+
+  @Column({ type: 'uuid', nullable: true })
+  campaignId: string;
 
   // Auditoría
   @CreateDateColumn()
