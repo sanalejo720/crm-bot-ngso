@@ -80,7 +80,7 @@ export class Debtor {
   };
 
   // Relación con Campaign
-  @ManyToOne(() => Campaign, (campaign) => campaign.debtors, { nullable: true })
+  @ManyToOne(() => Campaign, { nullable: true })
   @JoinColumn({ name: 'campaignId' })
   campaign: Campaign;
 
