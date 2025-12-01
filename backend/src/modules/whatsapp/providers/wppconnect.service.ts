@@ -6,6 +6,8 @@ import { Repository } from 'typeorm';
 import * as wppconnect from '@wppconnect-team/wppconnect';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { WhatsappNumber } from '../entities/whatsapp-number.entity';
 
 @Injectable()
@@ -29,8 +31,10 @@ export class WppConnectService implements OnModuleInit {
    * Se ejecuta automáticamente al iniciar la aplicación
    */
   async onModuleInit() {
-    this.logger.log('🔄 Iniciando restauración automática de sesiones WPPConnect...');
-    await this.restoreAllSessions();
+    // Restauración automática desactivada para evitar bloquear el inicio
+    // Las sesiones se deben iniciar manualmente desde el panel de administración
+    this.logger.log('⏭️ Restauración automática de sesiones WPPConnect desactivada');
+    // await this.restoreAllSessions();
   }
 
   /**
@@ -104,10 +108,13 @@ export class WppConnectService implements OnModuleInit {
    */
   private async restoreSession(sessionName: string, numberId: string): Promise<void> {
     try {
+      // Limpiar procesos zombies ANTES de verificar si existe
+      await this.killZombieProcesses(sessionName);
+
       // Verificar si ya está conectada
       if (this.clients.has(sessionName)) {
-        this.logger.log(`✅ Sesión ${sessionName} ya está activa`);
-        return;
+        this.logger.log(`✅ Sesión ${sessionName} ya está activa en memoria. Removiendo...`);
+        this.clients.delete(sessionName);
       }
 
       this.logger.log(`🚀 Conectando sesión restaurada: ${sessionName}`);
@@ -148,7 +155,7 @@ export class WppConnectService implements OnModuleInit {
           disableWelcome: true,
           puppeteerOptions: {
             headless: true,
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            executablePath: process.env.CHROME_BIN || '/snap/bin/chromium',
             args: [
               '--no-sandbox',
               '--disable-setuid-sandbox',
@@ -179,15 +186,61 @@ export class WppConnectService implements OnModuleInit {
   }
 
   /**
+   * Matar procesos zombies de Chromium para una sesión específica
+   */
+  private async killZombieProcesses(sessionName: string): Promise<void> {
+    const execPromise = promisify(exec);
+    
+    try {
+      this.logger.log(`🔪 Verificando procesos zombies para: ${sessionName}`);
+      
+      // Construir el path del userDataDir
+      const tokensPath = path.join(process.cwd(), 'tokens', sessionName);
+      
+      // Matar procesos de Chromium/Chrome que usen ese userDataDir
+      const commands = [
+        // Linux: buscar y matar procesos chromium con ese path
+        `pkill -9 -f "${tokensPath}"`,
+        // También intentar con chromium genérico
+        `pkill -9 -f "chromium.*${sessionName}"`,
+      ];
+      
+      for (const cmd of commands) {
+        try {
+          await execPromise(cmd);
+          this.logger.log(`✅ Ejecutado: ${cmd}`);
+        } catch (error) {
+          // pkill retorna error si no encuentra procesos, esto es normal
+          if (!error.message.includes('Command failed')) {
+            this.logger.warn(`⚠️ Error ejecutando ${cmd}: ${error.message}`);
+          }
+        }
+      }
+      
+      // Esperar un momento para que los procesos terminen
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      this.logger.log(`✅ Limpieza de procesos completada para: ${sessionName}`);
+    } catch (error) {
+      this.logger.error(`❌ Error matando procesos zombies: ${error.message}`);
+      // No lanzar error, continuar con el inicio de sesión
+    }
+  }
+
+  /**
    * Iniciar sesión de WhatsApp
    */
   async startSession(sessionName: string, numberId?: string): Promise<{ qrCode?: string; status: string }> {
     try {
       this.logger.log(`🚀 Iniciando sesión WPPConnect para: ${sessionName} (ID: ${numberId})`);
 
+      // CRÍTICO: Matar procesos zombies ANTES de verificar si existe el cliente
+      await this.killZombieProcesses(sessionName);
+
       if (this.clients.has(sessionName)) {
-        this.logger.warn(`⚠️ Sesión ${sessionName} ya existe y está conectada`);
-        return { status: 'already-connected' };
+        this.logger.warn(`⚠️ Sesión ${sessionName} ya existe en memoria. Removiendo...`);
+        // Remover cliente viejo de memoria
+        this.clients.delete(sessionName);
       }
 
       let qrCodeData: string;
@@ -251,7 +304,7 @@ export class WppConnectService implements OnModuleInit {
           disableWelcome: true,
           puppeteerOptions: {
             headless: true,
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            executablePath: process.env.CHROME_BIN || '/snap/bin/chromium',
             args: [
               '--no-sandbox',
               '--disable-setuid-sandbox',
@@ -296,17 +349,77 @@ export class WppConnectService implements OnModuleInit {
   private setupEventListeners(client: any, sessionName: string): void {
     // Mensajes entrantes
     client.onMessage(async (message: any) => {
-      this.eventEmitter.emit('whatsapp.message.received', {
-        provider: 'wppconnect',
-        from: message.from,
-        content: message.body,
-        type: message.type,
-        messageId: message.id,
-        timestamp: new Date(message.timestamp * 1000),
-        sessionName,
-      });
+      try {
+        let content = message.body || '';
+        let mediaUrl = null;
+        let fileName = null;
+        let mimeType = null;
 
-      this.logger.log(`Received message from ${message.from}: ${message.body}`);
+        // Procesar multimedia (imagen, audio, video, documento)
+        if (message.type !== 'chat' && message.type !== 'text') {
+          this.logger.log(`📎 Mensaje multimedia detectado - Tipo: ${message.type}`);
+          
+          try {
+            // Descargar media usando WPPConnect
+            const mediaData = await client.decryptFile(message);
+            
+            if (mediaData) {
+              // mediaData es un buffer o base64
+              const fs = require('fs');
+              const path = require('path');
+              
+              // Crear directorio uploads si no existe
+              const uploadsDir = path.join(process.cwd(), 'uploads', 'media');
+              if (!fs.existsSync(uploadsDir)) {
+                fs.mkdirSync(uploadsDir, { recursive: true });
+              }
+              
+              // Generar nombre de archivo único
+              const ext = this.getExtensionFromMimeType(message.mimetype);
+              fileName = `${Date.now()}_${message.id.substring(0, 10)}.${ext}`;
+              const filePath = path.join(uploadsDir, fileName);
+              
+              // Guardar archivo
+              if (Buffer.isBuffer(mediaData)) {
+                fs.writeFileSync(filePath, mediaData);
+              } else if (typeof mediaData === 'string') {
+                // Si es base64
+                const base64Data = mediaData.replace(/^data:.+;base64,/, '');
+                fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+              }
+              
+              // URL pública del archivo
+              mediaUrl = `/uploads/media/${fileName}`;
+              mimeType = message.mimetype;
+              content = message.caption || `[${message.type.toUpperCase()}]`;
+              
+              this.logger.log(`✅ Media guardado - Archivo: ${fileName}, Tipo: ${message.type}`);
+            }
+          } catch (mediaError) {
+            this.logger.error(`❌ Error descargando media: ${mediaError.message}`);
+            content = `[${message.type.toUpperCase()} - Error al descargar]`;
+          }
+        }
+
+        this.eventEmitter.emit('whatsapp.message.received', {
+          provider: 'wppconnect',
+          from: message.from,
+          content,
+          type: message.type,
+          messageId: message.id,
+          timestamp: new Date(message.timestamp * 1000),
+          sessionName,
+          // Datos de multimedia
+          mediaUrl,
+          fileName,
+          mimeType,
+          isMedia: message.type !== 'chat' && message.type !== 'text',
+        });
+
+        this.logger.log(`📨 Mensaje procesado de ${message.from} - Tipo: ${message.type}`);
+      } catch (error) {
+        this.logger.error(`❌ Error procesando mensaje entrante: ${error.message}`);
+      }
     });
 
     // Estado de conexión
@@ -409,12 +522,19 @@ export class WppConnectService implements OnModuleInit {
     try {
       const client = this.clients.get(sessionName);
       if (client) {
+        this.logger.log(`🔴 Cerrando sesión: ${sessionName}`);
         await client.close();
         this.clients.delete(sessionName);
-        this.logger.log(`Session ${sessionName} closed`);
+        this.logger.log(`✅ Sesión ${sessionName} cerrada desde memoria`);
       }
+      
+      // IMPORTANTE: Matar procesos zombies después de cerrar
+      await this.killZombieProcesses(sessionName);
+      this.logger.log(`✅ Procesos zombies limpiados para: ${sessionName}`);
     } catch (error) {
-      this.logger.error(`Error closing session: ${error.message}`);
+      this.logger.error(`❌ Error closing session: ${error.message}`);
+      // Intentar limpiar procesos de todas formas
+      await this.killZombieProcesses(sessionName);
     }
   }
 
@@ -481,5 +601,29 @@ export class WppConnectService implements OnModuleInit {
       this.logger.error(`WPPConnect health check failed: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+   * Obtener extensión de archivo según mime type
+   */
+  private getExtensionFromMimeType(mimeType: string): string {
+    const mimeMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+      'audio/ogg': 'ogg',
+      'audio/mpeg': 'mp3',
+      'audio/mp4': 'm4a',
+      'audio/aac': 'aac',
+      'video/mp4': 'mp4',
+      'video/3gpp': '3gp',
+      'application/pdf': 'pdf',
+      'application/msword': 'doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    };
+
+    return mimeMap[mimeType] || 'bin';
   }
 }
