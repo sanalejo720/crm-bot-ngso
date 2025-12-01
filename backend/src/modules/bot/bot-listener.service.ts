@@ -99,48 +99,14 @@ export class BotListenerService {
     this.logger.log(`🚀 Activando bot para chat ${chat.id} con flujo ${botFlowId}`);
     
     try {
-      // Normalizar teléfono para búsqueda
-      const normalizedPhone = chat.contactPhone
-        .replace(/@c\.us$/, '')
-        .replace(/^57/, '')
-        .replace(/^\+57/, '')
-        .replace(/^0/, '');
-
-      this.logger.log(`🔍 Buscando deudor - Tel original: ${chat.contactPhone}, Normalizado: ${normalizedPhone}`);
-
-      // Intentar buscar deudor por teléfono normalizado
-      let debtor = await this.debtorsService.findByPhone(normalizedPhone);
-      
-      // Si no encuentra, intentar con teléfono original
-      if (!debtor && chat.contactPhone !== normalizedPhone) {
-        debtor = await this.debtorsService.findByPhone(chat.contactPhone);
-      }
-      
-      // Inicializar variables del bot
+      // Inicializar variables del bot con datos básicos del contacto
       const botVariables: Record<string, any> = {
         clientName: chat.contactName || 'Cliente',
         clientPhone: chat.contactPhone,
+        debtorFound: false, // Inicialmente false, se actualizará cuando proporcione documento
       };
 
-      if (debtor) {
-        // Si encontramos al deudor, cargar sus datos
-        botVariables.debtorFound = true;
-        botVariables.debtorName = debtor.fullName;
-        botVariables.documentType = debtor.documentType;
-        botVariables.documentNumber = debtor.documentNumber;
-        botVariables.debtAmount = debtor.debtAmount;
-        botVariables.daysOverdue = debtor.daysOverdue;
-        botVariables.status = debtor.status;
-
-        this.logger.log(`💳 Deudor encontrado: ${debtor.fullName} - Deuda: $${debtor.debtAmount}`);
-        
-        // Actualizar última fecha de contacto
-        await this.debtorsService.updateLastContacted(debtor.id);
-      } else {
-        // No se encontró deudor, el bot preguntará por documento
-        botVariables.debtorFound = false;
-        this.logger.log(`❓ Deudor no encontrado para teléfono ${chat.contactPhone} ni ${normalizedPhone}`);
-      }
+      this.logger.log(`📝 Variables iniciales: Cliente ${chat.contactName}, Tel: ${chat.contactPhone}`);
 
       // Iniciar flujo de bot
       await this.botEngineService.startFlow(chat.id, botFlowId);
