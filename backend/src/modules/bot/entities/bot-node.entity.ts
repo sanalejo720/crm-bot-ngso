@@ -59,12 +59,14 @@ export class BotNode {
     };
     
     // CONDITION
+    variable?: string; // Variable principal a evaluar
     conditions?: Array<{
       variable: string;
-      operator: 'equals' | 'contains' | 'greater' | 'less';
+      operator: 'equals' | 'contains' | 'greater' | 'less' | 'contains_ignore_case';
       value: any;
       nextNodeId: string;
     }>;
+    elseNodeId?: string; // Nodo a ejecutar si ninguna condición se cumple
     
     // API_CALL
     apiConfig?: {
