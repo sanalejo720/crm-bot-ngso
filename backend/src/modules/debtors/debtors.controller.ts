@@ -10,6 +10,7 @@ import {
   UploadedFile,
   HttpCode,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
@@ -24,6 +25,8 @@ import { DocumentType } from './entities/debtor.entity';
 @Controller('debtors')
 @UseGuards(JwtAuthGuard)
 export class DebtorsController {
+  private readonly logger = new Logger(DebtorsController.name);
+  
   constructor(private readonly debtorsService: DebtorsService) {}
 
   /**
@@ -107,11 +110,98 @@ export class DebtorsController {
   }
 
   /**
-   * Cargar deudores desde CSV
+   * Cargar deudores desde CSV o Excel
+   */
+  @Post('upload')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Cargar deudores masivamente desde archivo CSV o Excel',
+    description: `
+    Sube un archivo CSV o Excel (.xlsx, .xls) con la información de los deudores.
+    
+    Columnas requeridas:
+    - nombre / fullName: Nombre completo del deudor
+    - tipo_doc / documentType: Tipo de documento (CC, CE, NIT, TI, PASSPORT)
+    - documento / documentNumber: Número de documento
+    
+    Columnas opcionales:
+    - telefono / phone: Número de teléfono
+    - correo / email: Correo electrónico
+    - direccion / address: Dirección
+    - deuda / debtAmount: Monto de la deuda
+    - deuda_inicial / initialDebtAmount: Deuda inicial
+    - mora / daysOverdue: Días de mora
+    - ultimo_pago / lastPaymentDate: Fecha del último pago
+    - promesa / promiseDate: Fecha de promesa de pago
+    - estado / status: Estado del deudor
+    - notas / notes: Observaciones
+    - producto: Producto financiero
+    - credito / numeroCredito: Número de crédito
+    - vencimiento / fechaVencimiento: Fecha de vencimiento
+    - compania: Compañía
+    - campana / campaignId: ID de campaña
+    `
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo CSV o Excel (.xlsx, .xls)',
+        },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('file', {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedMimes = [
+        'text/csv',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ];
+      
+      if (allowedMimes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Formato de archivo no válido. Solo se permiten CSV y Excel'), false);
+      }
+    },
+  }))
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      return {
+        success: false,
+        message: 'No se proporcionó ningún archivo',
+      };
+    }
+
+    this.logger.log(`📁 Procesando archivo: ${file.originalname} (${(file.size / 1024).toFixed(2)} KB)`);
+
+    const result = await this.debtorsService.uploadFromFile(file.buffer, file.originalname);
+
+    const message = result.success
+      ? 'Archivo procesado exitosamente'
+      : 'Archivo procesado con errores';
+
+    return {
+      success: result.success,
+      message,
+      data: result,
+    };
+  }
+
+  /**
+   * Cargar deudores desde CSV (legacy endpoint para compatibilidad)
    */
   @Post('upload-csv')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cargar deudores masivamente desde archivo CSV' })
+  @ApiOperation({ summary: 'Cargar deudores desde CSV (usar /upload en su lugar)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UploadCsvDto })
   @UseInterceptors(FileInterceptor('file'))
@@ -131,7 +221,7 @@ export class DebtorsController {
         created: result.created,
         updated: result.updated,
         errorsCount: result.errors.length,
-        errors: result.errors.slice(0, 10), // Mostrar solo primeros 10 errores
+        errors: result.errors.slice(0, 10),
       },
     };
   }

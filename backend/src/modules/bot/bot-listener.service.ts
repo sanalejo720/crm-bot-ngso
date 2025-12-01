@@ -6,13 +6,21 @@ import { BotEngineService } from './bot-engine.service';
 import { ChatsService } from '../chats/chats.service';
 import { DebtorsService } from '../debtors/debtors.service';
 import { Chat, ChatStatus } from '../chats/entities/chat.entity';
-import { Message, MessageDirection } from '../messages/entities/message.entity';
+import { Message, MessageDirection, MessageType, MessageSenderType, MessageStatus } from '../messages/entities/message.entity';
+import { MessagesService } from '../messages/messages.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { Campaign } from '../campaigns/entities/campaign.entity';
 import { DocumentType } from '../debtors/entities/debtor.entity';
 
 interface MessageCreatedEvent {
   message: Message;
   chat: Chat;
+}
+
+interface ChatAssignedEvent {
+  chat: Chat;
+  agentId: string;
+  agentName: string;
 }
 
 @Injectable()
@@ -23,6 +31,8 @@ export class BotListenerService {
     private botEngineService: BotEngineService,
     private chatsService: ChatsService,
     private debtorsService: DebtorsService,
+    private messagesService: MessagesService,
+    private whatsappService: WhatsappService,
     @InjectRepository(Campaign)
     private campaignRepository: Repository<Campaign>,
   ) {}
@@ -49,9 +59,21 @@ export class BotListenerService {
 
     // Verificar si el chat ya está en modo bot
     if (chat.status === ChatStatus.BOT) {
-      this.logger.log(`🔄 Chat ${chat.id} ya está en modo bot, procesando input del usuario`);
-      await this.botEngineService.processUserInput(chat.id, message.content);
-      return;
+      this.logger.log(`🔄 Chat ${chat.id} ya está en modo bot, verificando sesión...`);
+      
+      // Verificar si hay sesión activa
+      const hasSession = this.botEngineService.hasActiveSession(chat.id);
+      
+      if (hasSession) {
+        // Si hay sesión, procesar el input del usuario
+        this.logger.log(`✅ Sesión activa encontrada, procesando input`);
+        await this.botEngineService.processUserInput(chat.id, message.content);
+        return;
+      } else {
+        // Si no hay sesión, reiniciar el bot desde el inicio
+        this.logger.log(`⚠️ No hay sesión activa, reiniciando flujo desde el inicio`);
+        // Continuar con el flujo normal de activación del bot
+      }
     }
 
     // Obtener configuración de la campaña
@@ -77,8 +99,22 @@ export class BotListenerService {
     this.logger.log(`🚀 Activando bot para chat ${chat.id} con flujo ${botFlowId}`);
     
     try {
-      // Intentar buscar deudor por teléfono
-      const debtor = await this.debtorsService.findByPhone(chat.contactPhone);
+      // Normalizar teléfono para búsqueda
+      const normalizedPhone = chat.contactPhone
+        .replace(/@c\.us$/, '')
+        .replace(/^57/, '')
+        .replace(/^\+57/, '')
+        .replace(/^0/, '');
+
+      this.logger.log(`🔍 Buscando deudor - Tel original: ${chat.contactPhone}, Normalizado: ${normalizedPhone}`);
+
+      // Intentar buscar deudor por teléfono normalizado
+      let debtor = await this.debtorsService.findByPhone(normalizedPhone);
+      
+      // Si no encuentra, intentar con teléfono original
+      if (!debtor && chat.contactPhone !== normalizedPhone) {
+        debtor = await this.debtorsService.findByPhone(chat.contactPhone);
+      }
       
       // Inicializar variables del bot
       const botVariables: Record<string, any> = {
@@ -103,7 +139,7 @@ export class BotListenerService {
       } else {
         // No se encontró deudor, el bot preguntará por documento
         botVariables.debtorFound = false;
-        this.logger.log(`❓ Deudor no encontrado para teléfono ${chat.contactPhone}`);
+        this.logger.log(`❓ Deudor no encontrado para teléfono ${chat.contactPhone} ni ${normalizedPhone}`);
       }
 
       // Iniciar flujo de bot
@@ -167,6 +203,46 @@ export class BotListenerService {
         found: false,
         error: 'Error buscando información. Intente nuevamente.',
       };
+    }
+  }
+
+  /**
+   * Listener: Cuando se asigna un chat a un asesor
+   */
+  @OnEvent('chat.assigned')
+  async handleChatAssigned(event: ChatAssignedEvent) {
+    const { chat, agentName } = event;
+
+    this.logger.log(`👤 Chat ${chat.id} asignado a asesor: ${agentName}`);
+
+    try {
+      const mensaje = `✅ *¡Has sido conectado con un asesor!*\n\n` +
+        `👤 Asesor asignado: *${agentName}*\n` +
+        `🎫 Número de ticket: *${chat.id.substring(0, 8).toUpperCase()}*\n\n` +
+        `Nuestro asesor te atenderá en breve. Por favor, describe tu consulta.`;
+
+      // Enviar mensaje por WhatsApp
+      const result = await this.whatsappService.sendMessage(
+        chat.whatsappNumber.id,
+        chat.contactPhone,
+        mensaje,
+        MessageType.TEXT,
+      );
+
+      // Guardar mensaje en la base de datos
+      const savedMessage = await this.messagesService.create({
+        chatId: chat.id,
+        type: MessageType.TEXT,
+        direction: MessageDirection.OUTBOUND,
+        senderType: MessageSenderType.BOT,
+        content: mensaje,
+        externalId: result.messageId,
+      });
+
+      await this.messagesService.updateStatus(savedMessage.id, MessageStatus.SENT);
+      this.logger.log(`✅ Mensaje de asignación enviado a ${chat.contactPhone}`);
+    } catch (error) {
+      this.logger.error(`Error enviando mensaje de asignación: ${error.message}`);
     }
   }
 }
