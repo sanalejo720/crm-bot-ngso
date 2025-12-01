@@ -62,33 +62,13 @@ export class BotEngineService {
     // Obtener el chat con sus relaciones
     const chat = await this.chatsService.findOne(chatId);
 
-    // Inicializar variables del flujo
+    // Inicializar variables del flujo básicas
     const variables = this.initializeVariables(flow);
-
-    // Cargar datos del deudor si está disponible
-    if (chat.client) {
-      const debtor = await this.loadDebtorData(chat.client.phone);
-      if (debtor) {
-        variables['debtor'] = debtor;
-        this.logger.log(`📋 Datos del deudor cargados: ${debtor.fullName}`);
-      } else {
-        // Si no hay deudor, crear estructura con valores por defecto
-        variables['debtor'] = {
-          fullName: '[No encontrado]',
-          documentType: '[Desconocido]',
-          documentNumber: '[Desconocido]',
-          phone: chat.client.phone || '[No disponible]',
-          debtAmount: 0,
-          daysOverdue: 0,
-          status: 'desconocido',
-          metadata: {
-            producto: '[No disponible]',
-            fechaVencimiento: '[No disponible]',
-          },
-        };
-        this.logger.log(`⚠️ No se encontró deudor para teléfono ${chat.client.phone}, usando valores por defecto`);
-      }
-    }
+    
+    // Agregar variables del chat
+    variables['clientName'] = chat.contactName || 'Cliente';
+    variables['clientPhone'] = chat.contactPhone;
+    variables['debtorFound'] = false; // Se actualizará cuando proporcione documento
 
     // Crear sesión
     const session: BotSession = {
@@ -534,6 +514,60 @@ export class BotEngineService {
     // Guardar en variable
     if (variableName) {
       session.variables[variableName] = userInput;
+      
+      // Si capturamos un documento, buscar automáticamente al deudor
+      if (variableName === 'documento_validado' || variableName === 'documentNumber') {
+        this.logger.log(`🔍 Capturado documento: ${userInput}, buscando deudor...`);
+        
+        // Limpiar el documento (remover puntos, guiones, espacios)
+        const cleanDocument = userInput.replace(/[.\-\s]/g, '');
+        
+        // Buscar deudor por documento (asumiendo CC por defecto, puede mejorarse)
+        const debtor = await this.debtorsService.findByDocument('CC' as any, cleanDocument);
+        
+        if (debtor) {
+          // Cargar TODOS los datos del deudor en las variables de sesión
+          session.variables['debtor.fullName'] = debtor.fullName;
+          session.variables['debtor.documentType'] = debtor.documentType;
+          session.variables['debtor.documentNumber'] = debtor.documentNumber;
+          session.variables['debtor.phone'] = debtor.phone;
+          session.variables['debtor.email'] = debtor.email || '[No disponible]';
+          session.variables['debtor.debtAmount'] = debtor.debtAmount;
+          session.variables['debtor.initialDebtAmount'] = debtor.initialDebtAmount;
+          session.variables['debtor.daysOverdue'] = debtor.daysOverdue;
+          session.variables['debtor.lastPaymentDate'] = debtor.lastPaymentDate ? debtor.lastPaymentDate.toISOString().split('T')[0] : '[No disponible]';
+          session.variables['debtor.status'] = debtor.status;
+          session.variables['debtorFound'] = true;
+          
+          // Metadata adicional
+          if (debtor.metadata) {
+            session.variables['debtor.producto'] = debtor.metadata.producto || '[No disponible]';
+            session.variables['debtor.numeroCredito'] = debtor.metadata.numeroCredito || '[No disponible]';
+            session.variables['debtor.fechaVencimiento'] = debtor.metadata.fechaVencimiento || '[No disponible]';
+          }
+          
+          this.logger.log(`✅ Deudor encontrado: ${debtor.fullName} - CC ${debtor.documentNumber} - Deuda: $${debtor.debtAmount}`);
+          
+          // Actualizar el chat con la campaña del deudor (si tiene una asignada)
+          if (debtor.campaignId) {
+            try {
+              const chat = await this.chatsService.findOne(session.chatId);
+              if (chat && chat.campaignId !== debtor.campaignId) {
+                this.logger.log(`🔄 Actualizando campaña del chat de ${chat.campaignId} a ${debtor.campaignId}`);
+                await this.chatsService.update(session.chatId, { campaignId: debtor.campaignId });
+              }
+            } catch (error) {
+              this.logger.error(`Error actualizando campaña del chat: ${error.message}`);
+            }
+          }
+          
+          // Actualizar última fecha de contacto
+          await this.debtorsService.updateLastContacted(debtor.id);
+        } else {
+          this.logger.warn(`❌ No se encontró deudor con documento: ${cleanDocument}`);
+          session.variables['debtorFound'] = false;
+        }
+      }
     }
 
     return node.nextNodeId;
@@ -644,52 +678,6 @@ export class BotEngineService {
     });
 
     return result;
-  }
-
-  /**
-   * Cargar datos del deudor
-   */
-  private async loadDebtorData(phone: string): Promise<any | null> {
-    try {
-      // Normalizar teléfono: remover @c.us y prefijos
-      const normalizedPhone = phone
-        .replace(/@c\.us$/, '')
-        .replace(/^57/, '')
-        .replace(/^\+57/, '')
-        .replace(/^0/, '');
-
-      this.logger.log(`🔍 Buscando deudor con teléfono normalizado: ${normalizedPhone} (original: ${phone})`);
-
-      // Buscar con teléfono normalizado
-      let debtor = await this.debtorsService.findByPhone(normalizedPhone);
-      
-      // Si no encuentra, intentar con teléfono original
-      if (!debtor && phone !== normalizedPhone) {
-        debtor = await this.debtorsService.findByPhone(phone);
-      }
-      
-      if (!debtor) {
-        this.logger.warn(`❌ No se encontró deudor con teléfono: ${phone} ni ${normalizedPhone}`);
-        return null;
-      }
-
-      this.logger.log(`✅ Deudor encontrado: ${debtor.fullName}`);
-      if (!debtor) return null;
-
-      return {
-        fullName: debtor.fullName,
-        documentType: debtor.documentType || 'CC',
-        documentNumber: debtor.documentNumber,
-        phone: debtor.phone,
-        debtAmount: debtor.debtAmount,
-        daysOverdue: debtor.daysOverdue,
-        status: debtor.status,
-        metadata: debtor.metadata || {},
-      };
-    } catch (error) {
-      this.logger.error(`Error cargando datos del deudor: ${error.message}`);
-      return null;
-    }
   }
 
   /**
