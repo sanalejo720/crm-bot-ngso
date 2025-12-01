@@ -489,4 +489,40 @@ export class WhatsappNumbersService {
       this.sessionStats.set(numberId, stats);
     }
   }
+
+  /**
+   * Limpiar procesos zombies de Chromium para una sesión específica
+   */
+  async cleanupZombieProcesses(id: string): Promise<{ message: string; success: boolean }> {
+    const number = await this.whatsappNumberRepository.findOne({ where: { id } });
+
+    if (!number) {
+      throw new NotFoundException(`WhatsApp number with ID ${id} not found`);
+    }
+
+    if (number.provider !== 'wppconnect') {
+      throw new BadRequestException('This operation is only available for WPPConnect sessions');
+    }
+
+    try {
+      // Cerrar sesión primero si existe
+      if (number.sessionName) {
+        await this.wppConnectService.closeSession(number.sessionName);
+      }
+
+      // Actualizar estado en BD
+      number.status = ConnectionStatus.DISCONNECTED;
+      await this.whatsappNumberRepository.save(number);
+
+      // Eliminar stats de memoria
+      this.sessionStats.delete(id);
+
+      return {
+        success: true,
+        message: `Procesos zombies limpiados exitosamente para ${number.displayName}`,
+      };
+    } catch (error) {
+      throw new BadRequestException(`Error al limpiar procesos zombies: ${error.message}`);
+    }
+  }
 }

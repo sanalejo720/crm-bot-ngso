@@ -167,4 +167,13 @@ export class WhatsappNumbersController {
   canCreateNewSession() {
     return this.whatsappNumbersService.canCreateNewSession();
   }
+
+  @Post(':id/cleanup-zombies')
+  @RequirePermissions({ module: 'whatsapp', action: 'update' })
+  @ApiOperation({ summary: 'Limpiar procesos zombies de Chromium para una sesión' })
+  @ApiResponse({ status: 200, description: 'Procesos zombies limpiados exitosamente' })
+  @ApiResponse({ status: 404, description: 'Número no encontrado' })
+  cleanupZombieProcesses(@Param('id') id: string) {
+    return this.whatsappNumbersService.cleanupZombieProcesses(id);
+  }
 }
