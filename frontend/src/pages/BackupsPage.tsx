@@ -25,6 +25,13 @@ import {
   Alert,
   IconButton,
   Tooltip,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  Divider,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
 import {
   Backup as BackupIcon,
@@ -33,6 +40,9 @@ import {
   Refresh as RefreshIcon,
   Security as SecurityIcon,
   Warning as WarningIcon,
+  Email as EmailIcon,
+  PersonAdd as PersonAddIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
@@ -59,6 +69,18 @@ interface Backup {
   };
 }
 
+interface EmailRecipient {
+  id: string;
+  email: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  addedBy?: {
+    id: string;
+    name: string;
+  };
+}
+
 export default function BackupsPage() {
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,9 +88,18 @@ export default function BackupsPage() {
   const [downloadDialog, setDownloadDialog] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
   const [password, setPassword] = useState('');
+  
+  // Estados para gestión de emails
+  const [emailRecipients, setEmailRecipients] = useState<EmailRecipient[]>([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [emailDialog, setEmailDialog] = useState(false);
+  const [editingEmail, setEditingEmail] = useState<EmailRecipient | null>(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [newEmailName, setNewEmailName] = useState('');
 
   useEffect(() => {
     loadBackups();
+    loadEmailRecipients();
   }, []);
 
   const loadBackups = async () => {
@@ -104,8 +135,9 @@ export default function BackupsPage() {
       await api.post('/backups', { type: 'manual' });
       
       // SEGURIDAD: La contraseña NO se devuelve en la respuesta
-      // Fue enviada automáticamente por email a gerencia
-      alert('✅ Backup creado exitosamente.\n\n🔒 La contraseña maestra ha sido enviada al correo de gerencia (san.alejo0720@gmail.com).\n\n⚠️ Por seguridad, la contraseña NO se muestra en la aplicación.');
+      // Fue enviada automáticamente por email a los destinatarios configurados
+      const activeEmails = emailRecipients.filter(e => e.isActive).map(e => e.email).join(', ');
+      alert(`✅ Backup creado exitosamente.\n\n🔒 La contraseña maestra ha sido enviada a: ${activeEmails || 'los destinatarios configurados'}.\n\n⚠️ Por seguridad, la contraseña NO se muestra en la aplicación.`);
       
       // Recargar lista
       await loadBackups();
@@ -115,6 +147,98 @@ export default function BackupsPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  // Funciones para gestión de emails
+  const loadEmailRecipients = async () => {
+    setLoadingEmails(true);
+    try {
+      const response = await api.get('/backups/email-recipients');
+      const recipients = response.data?.data || [];
+      setEmailRecipients(Array.isArray(recipients) ? recipients : []);
+    } catch (error: any) {
+      console.error('❌ Error cargando destinatarios de email:', error);
+      setEmailRecipients([]);
+    } finally {
+      setLoadingEmails(false);
+    }
+  };
+
+  const handleAddEmail = async () => {
+    if (!newEmail) return;
+    
+    try {
+      await api.post('/backups/email-recipients', {
+        email: newEmail,
+        name: newEmailName,
+      });
+      
+      setNewEmail('');
+      setNewEmailName('');
+      setEmailDialog(false);
+      await loadEmailRecipients();
+      alert('✅ Destinatario agregado exitosamente');
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Error al agregar destinatario');
+    }
+  };
+
+  const handleUpdateEmail = async () => {
+    if (!editingEmail) return;
+    
+    try {
+      await api.put(`/backups/email-recipients/${editingEmail.id}`, {
+        email: newEmail || editingEmail.email,
+        name: newEmailName || editingEmail.name,
+        isActive: editingEmail.isActive,
+      });
+      
+      setEditingEmail(null);
+      setNewEmail('');
+      setNewEmailName('');
+      setEmailDialog(false);
+      await loadEmailRecipients();
+      alert('✅ Destinatario actualizado exitosamente');
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Error al actualizar destinatario');
+    }
+  };
+
+  const handleToggleEmailActive = async (recipient: EmailRecipient) => {
+    try {
+      await api.put(`/backups/email-recipients/${recipient.id}`, {
+        isActive: !recipient.isActive,
+      });
+      await loadEmailRecipients();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Error al actualizar estado');
+    }
+  };
+
+  const handleDeleteEmail = async (recipientId: string) => {
+    if (!confirm('¿Estás seguro de eliminar este destinatario?')) return;
+    
+    try {
+      await api.delete(`/backups/email-recipients/${recipientId}`);
+      await loadEmailRecipients();
+      alert('✅ Destinatario eliminado');
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Error al eliminar destinatario');
+    }
+  };
+
+  const openEditEmailDialog = (recipient: EmailRecipient) => {
+    setEditingEmail(recipient);
+    setNewEmail(recipient.email);
+    setNewEmailName(recipient.name || '');
+    setEmailDialog(true);
+  };
+
+  const openAddEmailDialog = () => {
+    setEditingEmail(null);
+    setNewEmail('');
+    setNewEmailName('');
+    setEmailDialog(true);
   };
 
   const handleDownloadBackup = async () => {
@@ -319,6 +443,100 @@ export default function BackupsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Sección de Gestión de Correos para Backups */}
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <EmailIcon color="primary" />
+                  Destinatarios de Contraseña de Backup
+                </Typography>
+                <Button
+                  variant="outlined"
+                  startIcon={<PersonAddIcon />}
+                  onClick={openAddEmailDialog}
+                  size="small"
+                >
+                  Agregar Destinatario
+                </Button>
+              </Box>
+
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  Cuando se crea un backup, la contraseña maestra se envía automáticamente a todos los destinatarios activos.
+                </Typography>
+              </Alert>
+
+              {loadingEmails ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : emailRecipients.length === 0 ? (
+                <Typography color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                  No hay destinatarios configurados. Las contraseñas no se enviarán por email.
+                </Typography>
+              ) : (
+                <List>
+                  {emailRecipients.map((recipient, index) => (
+                    <Box key={recipient.id}>
+                      {index > 0 && <Divider />}
+                      <ListItem>
+                        <ListItemText
+                          primary={
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography fontWeight="medium">{recipient.email}</Typography>
+                              <Chip 
+                                label={recipient.isActive ? 'Activo' : 'Inactivo'} 
+                                color={recipient.isActive ? 'success' : 'default'} 
+                                size="small" 
+                              />
+                            </Box>
+                          }
+                          secondary={
+                            <>
+                              {recipient.name && <span>{recipient.name} • </span>}
+                              <span>Agregado: {new Date(recipient.createdAt).toLocaleDateString('es-CO')}</span>
+                              {recipient.addedBy && <span> por {recipient.addedBy.name}</span>}
+                            </>
+                          }
+                        />
+                        <ListItemSecondaryAction>
+                          <FormControlLabel
+                            control={
+                              <Switch
+                                checked={recipient.isActive}
+                                onChange={() => handleToggleEmailActive(recipient)}
+                                size="small"
+                              />
+                            }
+                            label=""
+                          />
+                          <Tooltip title="Editar">
+                            <IconButton
+                              size="small"
+                              onClick={() => openEditEmailDialog(recipient)}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Eliminar">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteEmail(recipient.id)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </ListItemSecondaryAction>
+                      </ListItem>
+                    </Box>
+                  ))}
+                </List>
+              )}
+            </CardContent>
+          </Card>
         </Box>
       </Box>
 
@@ -353,6 +571,68 @@ export default function BackupsPage() {
             disabled={!password}
           >
             Descargar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog para agregar/editar destinatario de email */}
+      <Dialog 
+        open={emailDialog} 
+        onClose={() => {
+          setEmailDialog(false);
+          setEditingEmail(null);
+          setNewEmail('');
+          setNewEmailName('');
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          {editingEmail ? '✏️ Editar Destinatario' : '➕ Agregar Nuevo Destinatario'}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2 }} color="text.secondary">
+            {editingEmail 
+              ? 'Modifica los datos del destinatario de las contraseñas de backup.'
+              : 'Agrega un correo electrónico que recibirá las contraseñas maestras de los backups.'}
+          </Typography>
+          
+          <TextField
+            autoFocus
+            label="Correo Electrónico"
+            type="email"
+            fullWidth
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="ejemplo@empresa.com"
+            sx={{ mb: 2 }}
+            required
+          />
+          
+          <TextField
+            label="Nombre (opcional)"
+            type="text"
+            fullWidth
+            value={newEmailName}
+            onChange={(e) => setNewEmailName(e.target.value)}
+            placeholder="Gerente General"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setEmailDialog(false);
+            setEditingEmail(null);
+            setNewEmail('');
+            setNewEmailName('');
+          }}>
+            Cancelar
+          </Button>
+          <Button 
+            onClick={editingEmail ? handleUpdateEmail : handleAddEmail} 
+            variant="contained"
+            disabled={!newEmail}
+          >
+            {editingEmail ? 'Guardar Cambios' : 'Agregar'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,18 +1,10 @@
 import { PartialType } from '@nestjs/swagger';
 import { CreateClientDto } from './create-client.dto';
+import { CollectionStatus } from '../enums/collection-status.enum';
 
 import { IsNumber, IsOptional, IsString, IsDate, IsEnum } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-
-export enum CollectionStatus {
-  PENDING = 'pending',
-  CONTACTED = 'contacted',
-  PROMISE = 'promise',
-  PAID = 'paid',
-  LEGAL = 'legal',
-  NO_ANSWER = 'no_answer',
-}
 
 export class UpdateClientDto extends PartialType(CreateClientDto) {
   @ApiPropertyOptional({ example: 'Juan Perez' })

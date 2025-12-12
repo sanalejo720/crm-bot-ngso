@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -12,6 +14,9 @@ import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { UsersService } from '../users/users.service';
 import { User, AgentState } from '../users/entities/user.entity';
+import { Debtor } from '../debtors/entities/debtor.entity';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { MessageType } from '../messages/entities/message.entity';
 
 @Injectable()
 export class ChatsService {
@@ -20,8 +25,12 @@ export class ChatsService {
   constructor(
     @InjectRepository(Chat)
     private chatRepository: Repository<Chat>,
+    @InjectRepository(Debtor)
+    private debtorRepository: Repository<Debtor>,
     private usersService: UsersService,
     private eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => WhatsappService))
+    private whatsappService: WhatsappService,
   ) {}
 
   /**
@@ -96,7 +105,21 @@ export class ChatsService {
       });
     }
 
-    return query.getMany();
+    const chats = await query.getMany();
+    
+    // Cargar deudores manualmente para chats que tengan debtorId
+    for (const chat of chats) {
+      if (chat.debtorId) {
+        const debtor = await this.debtorRepository.findOne({
+          where: { id: chat.debtorId },
+        });
+        if (debtor) {
+          (chat as any).debtor = debtor;
+        }
+      }
+    }
+
+    return chats;
   }
 
   /**
@@ -112,6 +135,16 @@ export class ChatsService {
       throw new NotFoundException(`Chat con ID ${id} no encontrado`);
     }
 
+    // Cargar deudor manualmente si existe debtorId
+    if (chat.debtorId) {
+      const debtor = await this.debtorRepository.findOne({
+        where: { id: chat.debtorId },
+      });
+      if (debtor) {
+        (chat as any).debtor = debtor;
+      }
+    }
+
     return chat;
   }
 
@@ -119,10 +152,22 @@ export class ChatsService {
    * Obtener chat por externalId
    */
   async findByExternalId(externalId: string): Promise<Chat | null> {
-    return this.chatRepository.findOne({
+    const chat = await this.chatRepository.findOne({
       where: { externalId },
       relations: ['campaign', 'whatsappNumber', 'assignedAgent'],
     });
+    
+    // Cargar deudor manualmente si existe
+    if (chat?.debtorId) {
+      const debtor = await this.debtorRepository.findOne({
+        where: { id: chat.debtorId },
+      });
+      if (debtor) {
+        (chat as any).debtor = debtor;
+      }
+    }
+    
+    return chat;
   }
 
   /**
@@ -146,25 +191,44 @@ export class ChatsService {
   /**
    * Asignar chat a un agente
    */
-  async assign(chatId: string, agentId: string | null): Promise<Chat> {
-    this.logger.log(`🎯 MÉTODO ASSIGN LLAMADO - Chat: ${chatId}, AgentId: ${agentId}`);
+  async assign(chatId: string, agentId: string | null, reason?: string): Promise<Chat> {
+    this.logger.log(`🎯 MÉTODO ASSIGN LLAMADO - Chat: ${chatId}, AgentId: ${agentId}, Reason: ${reason}`);
     const chat = await this.findOne(chatId);
     const previousAgentId = chat.assignedAgentId;
     this.logger.log(`📋 Chat encontrado. Estado actual: assignedAgentId=${previousAgentId}`);
 
-    // Si agentId es null o vacío, desasignar el chat
+    // Si agentId es null o vacío, transferir al bot
     if (!agentId) {
+      this.logger.log(`🤖 Transfiriendo chat ${chatId} al bot - CERRANDO CONVERSACIÓN`);
+      
       // Decrementar contador del agente anterior si existe
       if (previousAgentId) {
         await this.usersService.decrementChatCount(previousAgentId);
+        this.logger.log(`📉 Contador de chats decrementado para agente ${previousAgentId}`);
       }
 
+      // CAMBIO: Cerrar el chat correctamente en lugar de solo cambiar estado a BOT
+      // Esto genera el PDF de cierre y marca la conversación como finalizada
       chat.assignedAgentId = null;
-      chat.status = ChatStatus.WAITING;
+      chat.status = ChatStatus.CLOSED;
+      chat.closedAt = new Date();
       chat.assignedAt = null;
 
       await this.chatRepository.save(chat);
-      this.logger.log(`Chat ${chatId} desasignado`);
+      this.logger.log(`✅ Chat ${chatId} cerrado y desasignado del agente ${previousAgentId}`);
+
+      // Emitir evento de cierre para generar PDF y actualizar frontend
+      this.eventEmitter.emit('chat.closed', chat);
+
+      // Emitir evento para notificar al frontend que el chat fue desasignado
+      if (previousAgentId) {
+        this.logger.log(`🔥 EMITIENDO EVENTO chat.unassigned para agente ${previousAgentId}`);
+        this.eventEmitter.emit('chat.unassigned', {
+          chat: await this.findOne(chatId),
+          previousAgentId,
+          reason: reason || 'Transferido al bot y cerrado',
+        });
+      }
 
       return this.findOne(chatId);
     }
@@ -275,6 +339,7 @@ export class ChatsService {
    */
   async close(chatId: string, userId: string): Promise<Chat> {
     const chat = await this.findOne(chatId);
+    const previousAgentId = chat.assignedAgentId;
 
     if (chat.assignedAgentId) {
       await this.usersService.decrementChatCount(chat.assignedAgentId);
@@ -287,8 +352,18 @@ export class ChatsService {
 
     this.logger.log(`Chat ${chatId} cerrado por usuario ${userId}`);
 
-    // Emitir evento
+    // Emitir evento de cierre (el listener handleChatClosed enviará el mensaje de despedida)
     this.eventEmitter.emit('chat.closed', chat);
+
+    // Si tenía agente asignado, emitir evento para generar PDF automático
+    if (previousAgentId) {
+      this.eventEmitter.emit('chat.unassigned', {
+        chat: await this.findOne(chatId),
+        previousAgentId,
+        reason: 'Chat cerrado manualmente',
+      });
+      this.logger.log(`🎧 Evento chat.unassigned emitido para generar PDF de cierre`);
+    }
 
     return chat;
   }
@@ -367,5 +442,53 @@ export class ChatsService {
     ]);
 
     return { active, resolved, total };
+  }
+
+  /**
+   * Actualizar información del contacto del chat
+   */
+  async updateContactInfo(
+    chatId: string,
+    data: { contactName?: string; contactPhone?: string },
+  ): Promise<Chat> {
+    const chat = await this.findOne(chatId);
+
+    if (data.contactName) {
+      chat.contactName = data.contactName;
+    }
+    if (data.contactPhone) {
+      chat.contactPhone = data.contactPhone;
+    }
+
+    await this.chatRepository.save(chat);
+
+    this.logger.log(`Chat ${chatId} - Información de contacto actualizada: ${JSON.stringify(data)}`);
+
+    // También actualizar el cliente asociado si existe
+    if (chat.clientId) {
+      try {
+        const clientRepo = this.chatRepository.manager.getRepository('Client');
+        const updateData: Record<string, any> = {};
+        
+        if (data.contactName) {
+          updateData.fullName = data.contactName;
+        }
+        if (data.contactPhone) {
+          updateData.phone = data.contactPhone;
+        }
+
+        if (Object.keys(updateData).length > 0) {
+          await clientRepo.update(chat.clientId, updateData);
+          this.logger.log(`Cliente ${chat.clientId} actualizado con: ${JSON.stringify(updateData)}`);
+        }
+      } catch (error) {
+        this.logger.warn(`No se pudo actualizar el cliente asociado: ${error.message}`);
+      }
+    }
+
+    // Emitir evento para actualizar en tiempo real
+    this.eventEmitter.emit('chat.updated', { chat });
+
+    return chat;
   }
 }

@@ -38,6 +38,16 @@ export class BotListenerService {
   ) {}
 
   /**
+   * Verificar si estamos en horario laboral (7 AM - 7 PM, Colombia)
+   */
+  private isBusinessHours(): boolean {
+    const now = new Date();
+    const colombiaTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const hour = colombiaTime.getHours();
+    return hour >= 7 && hour < 19;
+  }
+
+  /**
    * Listener: Cuando se crea un mensaje entrante, evaluar si activar bot
    */
   @OnEvent('message.created')
@@ -46,6 +56,13 @@ export class BotListenerService {
 
     // Solo procesar mensajes entrantes
     if (message.direction !== MessageDirection.INBOUND) {
+      return;
+    }
+
+    // Verificar horario laboral
+    if (!this.isBusinessHours()) {
+      this.logger.log(`⏰ Mensaje recibido fuera de horario laboral en chat ${chat.id}`);
+      await this.sendOutOfHoursMessage(chat);
       return;
     }
 
@@ -76,22 +93,42 @@ export class BotListenerService {
       }
     }
 
-    // Obtener configuración de la campaña
-    const campaign = await this.campaignRepository.findOne({
-      where: { id: chat.campaignId },
-    });
+    // Obtener número de WhatsApp con su botFlowId
+    let botFlowId: string | null = null;
+    let botEnabled = false;
 
-    if (!campaign) {
-      this.logger.warn(`❌ Campaña ${chat.campaignId} no encontrada`);
-      return;
+    if (chat.whatsappNumberId) {
+      try {
+        const whatsappNumber = await this.whatsappService.findOne(chat.whatsappNumberId);
+        if (whatsappNumber?.botFlowId) {
+          botFlowId = whatsappNumber.botFlowId;
+          botEnabled = true;
+          this.logger.log(`📱 Usando flujo de bot del número de WhatsApp: ${botFlowId}`);
+        }
+      } catch (error) {
+        this.logger.warn(`⚠️ No se pudo obtener el número de WhatsApp: ${error.message}`);
+      }
     }
 
-    // Verificar si el bot está habilitado en la campaña
-    const botEnabled = campaign.settings?.botEnabled || false;
-    const botFlowId = campaign.settings?.botFlowId;
+    // Si no hay botFlowId en el número, verificar en la campaña
+    if (!botFlowId && chat.campaignId) {
+      const campaign = await this.campaignRepository.findOne({
+        where: { id: chat.campaignId },
+      });
+
+      if (campaign) {
+        botEnabled = campaign.settings?.botEnabled || false;
+        botFlowId = campaign.settings?.botFlowId;
+        if (botFlowId) {
+          this.logger.log(`📊 Usando flujo de bot de la campaña: ${botFlowId}`);
+        }
+      } else {
+        this.logger.warn(`❌ Campaña ${chat.campaignId} no encontrada`);
+      }
+    }
 
     if (!botEnabled || !botFlowId) {
-      this.logger.log(`⏭️ Bot no habilitado en campaña ${campaign.name}`);
+      this.logger.log(`⏭️ Bot no habilitado o sin flujo configurado`);
       return;
     }
 
@@ -169,6 +206,45 @@ export class BotListenerService {
         found: false,
         error: 'Error buscando información. Intente nuevamente.',
       };
+    }
+  }
+
+  /**
+   * Enviar mensaje automático cuando el cliente escribe fuera de horario
+   */
+  private async sendOutOfHoursMessage(chat: Chat) {
+    try {
+      const mensaje = `🕐 *Horario de Atención*\n\n` +
+        `Gracias por comunicarte con nosotros.\n\n` +
+        `Nuestro horario de atención es:\n` +
+        `📅 *Lunes a Viernes*\n` +
+        `🕖 *7:00 AM - 7:00 PM*\n\n` +
+        `En este momento nos encontramos fuera del horario laboral. ` +
+        `Un asesor te contactará durante nuestro próximo horario de atención.\n\n` +
+        `¡Gracias por tu comprensión! 😊`;
+
+      // Enviar mensaje por WhatsApp
+      const result = await this.whatsappService.sendMessage(
+        chat.whatsappNumber.id,
+        chat.contactPhone,
+        mensaje,
+        MessageType.TEXT,
+      );
+
+      // Guardar mensaje en la base de datos
+      const savedMessage = await this.messagesService.create({
+        chatId: chat.id,
+        type: MessageType.TEXT,
+        direction: MessageDirection.OUTBOUND,
+        senderType: MessageSenderType.BOT,
+        content: mensaje,
+        externalId: result.messageId,
+      });
+
+      await this.messagesService.updateStatus(savedMessage.id, MessageStatus.SENT);
+      this.logger.log(`✅ Mensaje de horario enviado a ${chat.contactPhone}`);
+    } catch (error) {
+      this.logger.error(`Error enviando mensaje de horario: ${error.message}`);
     }
   }
 

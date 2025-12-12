@@ -7,12 +7,19 @@ import {
   Param,
   UseGuards,
   Query,
+  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Response } from 'express';
 import { ChatsService } from './chats.service';
+import { ChatsExportService } from './chats-export.service';
+import { AssignmentService } from './services/assignment.service';
+import { ReturnToBotService } from './services/return-to-bot.service';
+import { TransferService } from './services/transfer.service';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { AssignChatDto, TransferChatDto } from './dto/assign-chat.dto';
+import { ReturnToBotDto } from './dto/return-to-bot.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -24,7 +31,13 @@ import { ChatStatus } from './entities/chat.entity';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @ApiBearerAuth()
 export class ChatsController {
-  constructor(private readonly chatsService: ChatsService) {}
+  constructor(
+    private readonly chatsService: ChatsService,
+    private readonly chatsExportService: ChatsExportService,
+    private readonly assignmentService: AssignmentService,
+    private readonly returnToBotService: ReturnToBotService,
+    private readonly transferService: TransferService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Crear nuevo chat' })
@@ -85,18 +98,43 @@ export class ChatsController {
     return this.chatsService.update(id, updateChatDto);
   }
 
+  @Get('waiting-queue')
+  @ApiOperation({ summary: 'Obtener cola de chats en espera de asignación' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async getWaitingQueue(@Query('campaignId') campaignId?: string) {
+    const chats = await this.assignmentService.getWaitingQueue(campaignId);
+    return {
+      success: true,
+      data: chats,
+      total: chats.length,
+    };
+  }
+
   @Post(':id/assign')
-  @ApiOperation({ summary: 'Asignar chat a un agente' })
+  @ApiOperation({ summary: 'Asignar chat a un agente desde cola de espera' })
   @RequirePermissions({ module: 'chats', action: 'assign' })
-  assign(@Param('id') id: string, @Body() assignDto: AssignChatDto) {
-    return this.chatsService.assign(id, assignDto.agentId);
+  async assign(
+    @Param('id') id: string,
+    @Body() assignDto: AssignChatDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const chat = await this.assignmentService.assignChatToAgent(
+      id,
+      assignDto.agentId,
+      userId,
+    );
+    return {
+      success: true,
+      data: chat,
+      message: 'Chat asignado exitosamente',
+    };
   }
 
   @Patch(':id/assign')
   @ApiOperation({ summary: 'Asignar/Reasignar chat a un agente (para supervisores)' })
   @RequirePermissions({ module: 'chats', action: 'assign' })
   reassign(@Param('id') id: string, @Body() assignDto: AssignChatDto) {
-    return this.chatsService.assign(id, assignDto.agentId);
+    return this.chatsService.assign(id, assignDto.agentId, assignDto.reason);
   }
 
   @Patch(':id/status')
@@ -119,20 +157,57 @@ export class ChatsController {
     return this.chatsService.update(id, { status: body.status });
   }
 
+  @Post(':id/return-to-bot')
+  @ApiOperation({ summary: 'Retornar chat al bot' })
+  @RequirePermissions({ module: 'chats', action: 'update' })
+  async returnToBot(
+    @Param('id') id: string,
+    @Body() returnDto: ReturnToBotDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const chat = await this.returnToBotService.returnChatToBot(
+      id,
+      returnDto.reason,
+      userId,
+      returnDto.notes,
+    );
+    return {
+      success: true,
+      data: chat,
+      message: 'Chat retornado al bot exitosamente',
+    };
+  }
+
   @Post(':id/transfer')
   @ApiOperation({ summary: 'Transferir chat a otro agente' })
   @RequirePermissions({ module: 'chats', action: 'transfer' })
-  transfer(
+  async transfer(
     @Param('id') id: string,
     @CurrentUser('id') currentUserId: string,
     @Body() transferDto: TransferChatDto,
   ) {
-    return this.chatsService.transfer(
+    const chat = await this.transferService.transferChat(
       id,
-      currentUserId,
       transferDto.newAgentId,
+      currentUserId,
       transferDto.reason,
     );
+    return {
+      success: true,
+      data: chat,
+      message: 'Chat transferido exitosamente',
+    };
+  }
+
+  @Get(':id/transfer-history')
+  @ApiOperation({ summary: 'Obtener historial de transferencias de un chat' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async getTransferHistory(@Param('id') id: string) {
+    const history = await this.transferService.getTransferHistory(id);
+    return {
+      success: true,
+      data: history,
+    };
   }
 
   @Post(':id/close')
@@ -154,5 +229,38 @@ export class ChatsController {
   @RequirePermissions({ module: 'chats', action: 'read' })
   getAgentStats(@Param('id') agentId: string) {
     return this.chatsService.getAgentStats(agentId);
+  }
+
+  @Post(':id/export-pdf')
+  @ApiOperation({ summary: 'Enviar cierre de negociación (PDF cifrado a supervisores)' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async exportChatToPDF(
+    @Param('id') id: string,
+    @Body() body: { closureType: 'paid' | 'promise' },
+    @CurrentUser('id') agentId: string,
+  ) {
+    const result = await this.chatsExportService.exportChatToPDF(
+      id,
+      body.closureType,
+      agentId,
+    );
+    return {
+      success: true,
+      message: 'Cierre de negociación enviado exitosamente a supervisores',
+      data: {
+        fileName: result.fileName,
+        ticketNumber: result.ticketNumber,
+      },
+    };
+  }
+
+  @Patch(':id/contact')
+  @ApiOperation({ summary: 'Actualizar información del contacto del chat' })
+  @RequirePermissions({ module: 'chats', action: 'update' })
+  async updateContactInfo(
+    @Param('id') id: string,
+    @Body() body: { contactName?: string; contactPhone?: string },
+  ) {
+    return this.chatsService.updateContactInfo(id, body);
   }
 }

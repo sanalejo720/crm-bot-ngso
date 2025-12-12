@@ -16,15 +16,21 @@ import {
   DialogActions,
   TextField,
   Alert,
+  FormControlLabel,
+  Checkbox,
+  MenuItem,
+  Divider,
 } from '@mui/material';
 import {
   Add,
   Edit,
   PlayArrow,
   Pause,
+  CloudUpload,
 } from '@mui/icons-material';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
+import { UploadDebtorsDialog } from '../components/UploadDebtorsDialog';
 import api from '../services/api';
 
 interface Campaign {
@@ -35,22 +41,38 @@ interface Campaign {
   startDate?: string;
   endDate?: string;
   createdAt: string;
+  settings?: {
+    botEnabled?: boolean;
+    botFlowId?: string;
+  };
+}
+
+interface BotFlow {
+  id: string;
+  name: string;
+  description?: string;
+  status: 'draft' | 'active' | 'inactive';
 }
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [botFlows, setBotFlows] = useState<BotFlow[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
+  const [openUploadDialog, setOpenUploadDialog] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     startDate: '',
     endDate: '',
+    botEnabled: false,
+    botFlowId: '',
   });
 
   useEffect(() => {
     loadCampaigns();
+    loadBotFlows();
   }, []);
 
   const loadCampaigns = async () => {
@@ -65,6 +87,45 @@ export default function CampaignsPage() {
     }
   };
 
+  const loadBotFlows = async () => {
+    try {
+      console.log('🔍 Cargando bot flows...');
+      const response = await api.get('/bot-flows');
+      // Manejar la estructura de respuesta con wrapper { success, data, timestamp }
+      let flows = [];
+      
+      // Caso 1: response.data es array directo
+      if (Array.isArray(response.data)) {
+        flows = response.data;
+      } 
+      // Caso 2: response.data.data es array
+      else if (Array.isArray(response.data?.data)) {
+        flows = response.data.data;
+      }
+      // Caso 3: response.data.data.data es array (con wrapper de success)
+      else if (response.data?.data?.data && Array.isArray(response.data.data.data)) {
+        flows = response.data.data.data;
+      }
+      // Caso 4: response.data.data es objeto con data array dentro
+      else if (response.data?.data && typeof response.data.data === 'object' && Array.isArray(response.data.data.data)) {
+        flows = response.data.data.data;
+      }
+      
+      console.log('✅ Flows array encontrado:', flows);
+      
+      console.log('📊 Flujos encontrados:', flows.length);
+      // Filtrar solo flujos activos
+      const activeFlows = flows.filter((f: BotFlow) => f.status === 'active');
+      console.log('✅ Flujos activos:', activeFlows.length, activeFlows);
+      setBotFlows(activeFlows);
+    } catch (error: any) {
+      console.error('❌ Error loading bot flows:', error);
+      console.error('❌ Error details:', error.response?.data);
+      console.error('❌ Status:', error.response?.status);
+      setBotFlows([]);
+    }
+  };
+
   const handleOpenDialog = (campaign?: Campaign) => {
     if (campaign) {
       setEditingCampaign(campaign);
@@ -73,6 +134,8 @@ export default function CampaignsPage() {
         description: campaign.description,
         startDate: campaign.startDate || '',
         endDate: campaign.endDate || '',
+        botEnabled: campaign.settings?.botEnabled || false,
+        botFlowId: campaign.settings?.botFlowId || '',
       });
     } else {
       setEditingCampaign(null);
@@ -81,6 +144,8 @@ export default function CampaignsPage() {
         description: '',
         startDate: '',
         endDate: '',
+        botEnabled: false,
+        botFlowId: '',
       });
     }
     setOpenDialog(true);
@@ -93,10 +158,21 @@ export default function CampaignsPage() {
 
   const handleSaveCampaign = async () => {
     try {
+      const payload = {
+        name: formData.name,
+        description: formData.description,
+        startDate: formData.startDate || undefined,
+        endDate: formData.endDate || undefined,
+        settings: {
+          botEnabled: formData.botEnabled,
+          botFlowId: formData.botEnabled && formData.botFlowId ? formData.botFlowId : undefined,
+        },
+      };
+      
       if (editingCampaign) {
-        await api.patch(`/campaigns/${editingCampaign.id}`, formData);
+        await api.patch(`/campaigns/${editingCampaign.id}`, payload);
       } else {
-        await api.post('/campaigns', formData);
+        await api.post('/campaigns', payload);
       }
       handleCloseDialog();
       loadCampaigns();
@@ -146,29 +222,46 @@ export default function CampaignsPage() {
         <Box sx={{ p: 4 }}>
           {/* Header */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-            <Box>
-              <Typography variant="h4" sx={{ fontWeight: 700, color: '#2d3748', mb: 1 }}>
-                Campañas de Cobranza
-              </Typography>
-              <Typography variant="body1" sx={{ color: '#718096' }}>
-                Gestiona las campañas activas y su configuración
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, color: '#2d3748', mb: 1 }}>
+              Campañas de Cobranza
+            </Typography>
+            <Typography variant="body1" sx={{ color: '#718096' }}>
+              Gestiona las campañas activas y su configuración
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => handleOpenDialog()}
-            sx={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              textTransform: 'none',
-              px: 3,
-            }}
-          >
-            Nueva Campaña
-          </Button>
-        </Box>
-
-        {/* Campaigns Grid */}
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="outlined"
+              startIcon={<CloudUpload />}
+              onClick={() => setOpenUploadDialog(true)}
+              sx={{
+                textTransform: 'none',
+                px: 3,
+                borderColor: '#667eea',
+                color: '#667eea',
+                '&:hover': {
+                  borderColor: '#764ba2',
+                  backgroundColor: 'rgba(102, 126, 234, 0.04)',
+                },
+              }}
+            >
+              Cargar Base de Datos
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpenDialog()}
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                textTransform: 'none',
+                px: 3,
+              }}
+            >
+              Nueva Campaña
+            </Button>
+          </Box>
+        </Box>        {/* Campaigns Grid */}
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 3 }}>
           {campaigns.map((campaign) => (
             <Box key={campaign.id}>
@@ -199,6 +292,16 @@ export default function CampaignsPage() {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     {campaign.description}
                   </Typography>
+
+                  {campaign.settings?.botEnabled && (
+                    <Chip
+                      label="🤖 Bot Habilitado"
+                      size="small"
+                      color="info"
+                      variant="outlined"
+                      sx={{ mb: 1 }}
+                    />
+                  )}
 
                   {campaign.startDate && (
                     <Typography variant="caption" color="text.secondary" display="block">
@@ -303,6 +406,49 @@ export default function CampaignsPage() {
                 fullWidth
                 InputLabelProps={{ shrink: true }}
               />
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
+                🤖 Configuración de Bot Automatizado
+              </Typography>
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={formData.botEnabled}
+                    onChange={(e) => setFormData({ ...formData, botEnabled: e.target.checked })}
+                  />
+                }
+                label="Habilitar Bot Automatizado"
+              />
+
+              {formData.botEnabled && (
+                <TextField
+                  select
+                  label="Flujo de Bot"
+                  value={formData.botFlowId}
+                  onChange={(e) => setFormData({ ...formData, botFlowId: e.target.value })}
+                  fullWidth
+                  helperText="Selecciona el flujo conversacional que usará el bot"
+                  required={formData.botEnabled}
+                >
+                  <MenuItem value="">
+                    <em>Ninguno</em>
+                  </MenuItem>
+                  {botFlows.map((flow) => (
+                    <MenuItem key={flow.id} value={flow.id}>
+                      {flow.name} {flow.description && `- ${flow.description}`}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
+
+              {formData.botEnabled && botFlows.length === 0 && (
+                <Alert severity="warning" sx={{ mt: 1 }}>
+                  No hay flujos de bot activos. Crea un flujo primero en la sección Bot Flows.
+                </Alert>
+              )}
             </Box>
           </DialogContent>
           <DialogActions>
@@ -316,6 +462,16 @@ export default function CampaignsPage() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Upload Debtors Dialog */}
+        <UploadDebtorsDialog
+          open={openUploadDialog}
+          onClose={() => setOpenUploadDialog(false)}
+          onSuccess={() => {
+            // Opcionalmente recargar datos si es necesario
+            console.log('Debtors uploaded successfully');
+          }}
+        />
         </Box>
       </Box>
     </Box>

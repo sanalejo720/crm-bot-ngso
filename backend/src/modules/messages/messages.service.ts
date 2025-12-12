@@ -17,8 +17,12 @@ import {
 import { CreateMessageDto } from './dto/create-message.dto';
 import { ChatsService } from '../chats/chats.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { ClientsService } from '../clients/clients.service';
+import { DebtorsService } from '../debtors/debtors.service';
 import { WhatsappNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { Client, ClientStatus } from '../clients/entities/client.entity';
+import { CollectionStatus } from '../clients/enums/collection-status.enum';
+import { normalizeWhatsAppPhone } from '../../common/utils/phone.utils';
 
 @Injectable()
 export class MessagesService {
@@ -33,6 +37,8 @@ export class MessagesService {
     private clientRepository: Repository<Client>,
     private chatsService: ChatsService,
     private whatsappService: WhatsappService,
+    private clientsService: ClientsService,
+    private debtorsService: DebtorsService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -140,10 +146,14 @@ export class MessagesService {
     }
 
     try {
+      // Determinar el destinatario: usar whatsappChatId si existe (para @lid), sino contactPhone
+      const recipient = chat.metadata?.whatsappChatId || chat.contactPhone;
+      this.logger.log(`📤 Enviando mensaje a: ${recipient} (whatsappChatId: ${chat.metadata?.whatsappChatId || 'N/A'})`);
+      
       // Enviar a través del servicio WhatsApp
       const result = await this.whatsappService.sendMessage(
         chat.whatsappNumber.id,
-        chat.contactPhone,
+        recipient,
         content,
         MessageType.TEXT,
       );
@@ -276,6 +286,9 @@ export class MessagesService {
         campaignId: whatsappNumber.campaignId,
         whatsappNumberId: data.whatsappNumberId,
       });
+
+      // Asociar automáticamente con deudor si existe
+      await this.associateDebtorToClient(chat);
     }
 
     // Crear mensaje
@@ -384,83 +397,160 @@ export class MessagesService {
     messageId: string;
     timestamp: Date;
     sessionName: string;
+    // Campos de multimedia
+    mediaUrl?: string;
+    fileName?: string;
+    mimeType?: string;
+    isMedia?: boolean;
   }) {
     try {
-      this.logger.log(`📨 Mensaje entrante de WhatsApp: ${data.from} - "${data.content}"`);
+      // Normalizar el número de teléfono (eliminar @c.us y otros sufijos)
+      const normalizedPhone = normalizeWhatsAppPhone(data.from);
+      this.logger.log(`📨 Mensaje entrante de WhatsApp: ${data.from} -> ${normalizedPhone} - "${data.content}"`);
 
-      // 1. Buscar el número de WhatsApp por sessionName
-      const whatsappNumber = await this.whatsappNumberRepository.findOne({
+      // Validar que el número normalizado sea válido
+      if (!normalizedPhone || normalizedPhone.length < 8) {
+        this.logger.warn(`❌ Número de teléfono inválido después de normalizar: ${data.from} -> ${normalizedPhone}`);
+        return;
+      }
+
+      // 1. Buscar el número de WhatsApp
+      // Para Twilio, sessionName contiene el número de teléfono
+      // Para WPPConnect, sessionName es el nombre de la sesión
+      let whatsappNumber = await this.whatsappNumberRepository.findOne({
         where: { sessionName: data.sessionName },
         relations: ['campaign'],
       });
 
+      // Si no se encuentra por sessionName, buscar por phoneNumber (para Twilio)
       if (!whatsappNumber) {
-        this.logger.warn(`❌ Número de WhatsApp no encontrado para sessionName: ${data.sessionName}`);
+        whatsappNumber = await this.whatsappNumberRepository.findOne({
+          where: { phoneNumber: data.sessionName },
+          relations: ['campaign'],
+        });
+      }
+
+      // También intentar buscar con el + al inicio
+      if (!whatsappNumber) {
+        whatsappNumber = await this.whatsappNumberRepository.findOne({
+          where: { phoneNumber: `+${data.sessionName}` },
+          relations: ['campaign'],
+        });
+      }
+
+      if (!whatsappNumber) {
+        this.logger.warn(`❌ Número de WhatsApp no encontrado para sessionName/phoneNumber: ${data.sessionName}`);
         return;
       }
 
-      this.logger.log(`✅ Número WhatsApp encontrado: ${whatsappNumber.displayName} - Campaña: ${whatsappNumber.campaign?.name}`);
+      this.logger.log(`✅ Número WhatsApp encontrado: ${whatsappNumber.displayName} (${whatsappNumber.provider}) - Campaña: ${whatsappNumber.campaign?.name}`);
 
-      // 2. Buscar o crear cliente
+      // 2. Buscar o crear cliente (buscar tanto por número normalizado como original)
       let client = await this.clientRepository.findOne({
-        where: { phone: data.from },
+        where: [
+          { phone: normalizedPhone },
+          { phone: data.from },
+        ],
       });
 
       if (!client) {
-        this.logger.log(`📝 Creando nuevo cliente: ${data.from}`);
+        this.logger.log(`📝 Creando nuevo cliente: ${normalizedPhone}`);
         client = this.clientRepository.create({
-          phone: data.from,
-          fullName: data.from, // Temporal, se actualizará después
+          phone: normalizedPhone,
+          fullName: normalizedPhone, // Temporal, se actualizará después
           status: ClientStatus.LEAD, // Nuevo cliente entrante es un lead
         });
         client = await this.clientRepository.save(client);
+      } else if (client.phone !== normalizedPhone) {
+        // Si el cliente existe pero tiene el teléfono sin normalizar, actualizarlo
+        client.phone = normalizedPhone;
+        await this.clientRepository.save(client);
+        this.logger.log(`📝 Cliente actualizado con teléfono normalizado: ${normalizedPhone}`);
       }
 
-      // 3. Buscar chat existente por externalId o crear uno nuevo
+      // 3. Buscar chat existente por teléfono normalizado o crear uno nuevo
       const existingChats = await this.chatsService.findAll({
         campaignId: whatsappNumber.campaignId,
       });
       
+      // Buscar tanto por teléfono normalizado como original
       let chat = existingChats.find(c => 
-        c.contactPhone === data.from &&
+        (c.contactPhone === normalizedPhone || c.contactPhone === data.from) &&
         (c.status === 'waiting' || c.status === 'bot' || c.status === 'active' || c.status === 'pending')
       );
 
       if (!chat) {
-        this.logger.log(`💬 Creando nuevo chat para ${data.from}`);
+        this.logger.log(`💬 Creando nuevo chat para ${normalizedPhone}`);
         chat = await this.chatsService.create({
-          contactName: client.fullName,
-          contactPhone: data.from,
-          externalId: `wpp_${data.from}_${Date.now()}`,
+          contactName: client.fullName !== normalizedPhone ? client.fullName : normalizedPhone,
+          contactPhone: normalizedPhone,
+          externalId: `wpp_${normalizedPhone}_${Date.now()}`,
           campaignId: whatsappNumber.campaignId,
           whatsappNumberId: whatsappNumber.id,
+          // Guardar el chatId original de WhatsApp (puede ser @lid o @c.us)
+          metadata: { whatsappChatId: data.from },
         });
         
         // Asociar el cliente al chat después de crearlo
         chat.clientId = client.id;
         await this.chatsService.update(chat.id, { clientId: client.id } as any);
+      } else if (data.from && data.from.includes('@lid') && (!chat.metadata || !chat.metadata.whatsappChatId)) {
+        // Si el chat existe pero no tiene whatsappChatId y viene con @lid, actualizarlo
+        this.logger.log(`📝 Actualizando chat ${chat.id} con whatsappChatId: ${data.from}`);
+        await this.chatsService.update(chat.id, { 
+          metadata: { ...chat.metadata, whatsappChatId: data.from } 
+        } as any);
+        chat.metadata = { ...chat.metadata, whatsappChatId: data.from };
       }
 
       this.logger.log(`✅ Chat encontrado/creado: ${chat.id}`);
 
-      // 4. Guardar el mensaje
+      // 4. Determinar tipo de mensaje
+      let messageType = MessageType.TEXT;
+      if (data.type === 'image') {
+        messageType = MessageType.IMAGE;
+      } else if (data.type === 'audio' || data.type === 'ptt') {
+        messageType = MessageType.AUDIO;
+      } else if (data.type === 'video') {
+        messageType = MessageType.VIDEO;
+      } else if (data.type === 'document') {
+        messageType = MessageType.DOCUMENT;
+      }
+
+      this.logger.log(`💬 Guardando mensaje tipo: ${messageType}`);
+
+      // 5. Verificar si el mensaje ya existe (evitar duplicados)
+      const existingMessage = await this.messageRepository.findOne({
+        where: { externalId: data.messageId },
+      });
+
+      if (existingMessage) {
+        this.logger.warn(`⚠️ Mensaje duplicado detectado (externalId: ${data.messageId}), ignorando...`);
+        return;
+      }
+
+      // 6. Guardar el mensaje
       const message = this.messageRepository.create({
         chatId: chat.id,
         content: data.content,
-        type: data.type === 'image' ? MessageType.IMAGE : MessageType.TEXT,
+        type: messageType,
         direction: MessageDirection.INBOUND,
         senderType: MessageSenderType.CONTACT,
         status: MessageStatus.DELIVERED,
         externalId: data.messageId,
+        // Guardar datos de multimedia
+        mediaUrl: data.mediaUrl || null,
+        mediaFileName: data.fileName || null,
+        mediaMimeType: data.mimeType || null,
       });
 
       const savedMessage = await this.messageRepository.save(message);
-      this.logger.log(`✅ Mensaje guardado: ${savedMessage.id}`);
+      this.logger.log(`✅ Mensaje guardado: ${savedMessage.id} - Tipo: ${messageType}`);
 
-      // 5. Actualizar última actividad del chat
+      // 7. Actualizar última actividad del chat
       await this.chatsService.updateLastActivity(chat.id, data.content);
 
-      // 6. Emitir evento para Socket.IO y Bot
+      // 8. Emitir evento para Socket.IO y Bot
       this.eventEmitter.emit('message.created', {
         message: savedMessage,
         chat,
@@ -470,6 +560,83 @@ export class MessagesService {
 
     } catch (error) {
       this.logger.error(`❌ Error procesando mensaje entrante de WhatsApp: ${error.message}`, error.stack);
+    }
+  }
+
+  /**
+   * Busca deudor por teléfono y crea/actualiza cliente asociado al chat
+   */
+  private async associateDebtorToClient(chat: any): Promise<void> {
+    try {
+      // Normalizar teléfono del chat (remover @c.us, @g.us, etc.)
+      const normalizedPhone = chat.contactPhone.replace(/@c\.us|@g\.us|@s\.whatsapp\.net/g, '');
+      this.logger.log(`🔍 Buscando deudor para teléfono: ${normalizedPhone}`);
+
+      // Buscar deudor en la base de datos
+      const debtor = await this.debtorsService.findByPhone(normalizedPhone);
+
+      if (!debtor) {
+        this.logger.log(`ℹ️ No se encontró deudor para el teléfono ${normalizedPhone}`);
+        return;
+      }
+
+      this.logger.log(`✅ Deudor encontrado: ${debtor.fullName} - Deuda: $${debtor.debtAmount}`);
+
+      // Buscar si ya existe un cliente con este teléfono
+      let client = await this.clientsService.findByPhone(normalizedPhone);
+
+      if (!client) {
+        // Separar nombre completo en firstName y lastName
+        const nameParts = debtor.fullName.split(' ');
+        const firstName = nameParts[0] || debtor.fullName;
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        // Crear nuevo cliente con datos del deudor
+        // Mapear status del deudor a CollectionStatus
+        let collectionStatus = CollectionStatus.PENDING;
+        if (debtor.status === 'contacted') {
+          collectionStatus = CollectionStatus.CONTACTED;
+        } else if (debtor.status === 'promise') {
+          collectionStatus = CollectionStatus.PROMISE;
+        } else if (debtor.status === 'paid') {
+          collectionStatus = CollectionStatus.PAID;
+        } else if (debtor.status === 'legal') {
+          collectionStatus = CollectionStatus.LEGAL;
+        }
+
+        client = await this.clientsService.create({
+          phone: normalizedPhone,
+          firstName,
+          lastName,
+          email: debtor.email || undefined,
+          company: debtor.metadata?.producto || undefined,
+          campaignId: chat.campaignId,
+          tags: ['deudor', debtor.status],
+          // Campos de deuda directos en la entidad
+          debtAmount: debtor.debtAmount,
+          daysOverdue: debtor.daysOverdue,
+          documentNumber: debtor.documentNumber,
+          collectionStatus,
+          // Metadata adicional
+          customFields: {
+            debtorId: debtor.id,
+            documentType: debtor.documentType,
+            producto: debtor.metadata?.producto,
+            originalData: debtor.metadata,
+          },
+        });
+
+        this.logger.log(`✅ Cliente creado: ${client.id} - ${debtor.fullName} - Deuda: $${debtor.debtAmount}`);
+      } else {
+        this.logger.log(`ℹ️ Cliente ya existía: ${client.id}`);
+      }
+
+      // Asociar cliente con el chat
+      await this.chatsService.update(chat.id, { clientId: client.id });
+      this.logger.log(`✅ Chat ${chat.id} asociado al cliente ${client.id}`);
+
+    } catch (error) {
+      this.logger.error(`❌ Error asociando deudor con cliente: ${error.message}`, error.stack);
     }
   }
 }

@@ -83,9 +83,13 @@ export default function EvidenceGallery({
       if (status) params.status = status;
 
       const response = await api.get('/payment-evidences', { params });
-      setEvidences(response.data.data);
+      // El backend tiene TransformInterceptor: response.data.data.data
+      const evidencesData = response.data?.data?.data || response.data?.data || [];
+      const evidencesArray = Array.isArray(evidencesData) ? evidencesData : [];
+      setEvidences(evidencesArray);
     } catch (err) {
       console.error('Error al cargar evidencias:', err);
+      setEvidences([]);
     } finally {
       setLoading(false);
     }

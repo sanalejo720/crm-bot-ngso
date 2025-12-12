@@ -1,0 +1,27 @@
+﻿=================================================
+    CRM NGSO - INFORMACION DE LA VM
+=================================================
+
+IP Publica: 172.203.16.202
+Usuario: azureuser
+Nombre VM: vm-crm-ngso-prod
+Region: eastus2
+Tamano: Standard_B2ms
+
+CONECTARSE:
+ssh azureuser@172.203.16.202
+
+PUERTOS ABIERTOS:
+- 22 (SSH)
+- 80 (HTTP)
+- 443 (HTTPS)
+- 3000 (API Backend)
+
+SIGUIENTE PASO:
+1. Conectarse por SSH
+2. Ejecutar: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+3. Seguir la guia: GUIA_DESPLIEGUE_AZURE.md (desde la PARTE 3)
+
+=================================================
+Creado: 2025-11-26 10:26:55
+=================================================

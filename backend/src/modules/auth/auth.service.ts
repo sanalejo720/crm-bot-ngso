@@ -3,6 +3,8 @@ import {
   UnauthorizedException,
   ConflictException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +12,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as speakeasy from 'speakeasy';
-import { User, UserStatus } from '../users/entities/user.entity';
+import { User, UserStatus, AgentState } from '../users/entities/user.entity';
+import { AgentSessionsService } from '../users/services/agent-sessions.service';
+import { AgentSessionStatus } from '../users/entities/agent-session.entity';
 import { LoginDto, LoginResponseDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -23,6 +27,8 @@ export class AuthService {
     private userRepository: Repository<User>,
     private jwtService: JwtService,
     private configService: ConfigService,
+    @Inject(forwardRef(() => AgentSessionsService))
+    private agentSessionsService: AgentSessionsService,
   ) {}
 
   /**
@@ -81,11 +87,28 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
 
-    // Actualizar refresh token y última conexión
-    await this.userRepository.update(user.id, {
+    // Almacenar refresh token hasheado
+    const updateData: any = {
       refreshToken: await bcrypt.hash(tokens.refreshToken, 10),
       lastLoginAt: new Date(),
-    });
+    };
+
+    // Si es agente, ponerlo disponible automáticamente y crear sesión
+    if (user.isAgent) {
+      updateData.agentState = AgentState.AVAILABLE;
+      
+      // Crear sesión de agente para tracking de asistencia
+      await this.agentSessionsService.startSession(
+        user.id,
+        AgentSessionStatus.AVAILABLE,
+        loginDto.ipAddress,
+        loginDto.userAgent,
+      );
+      
+      this.logger.log(`✅ Agente ${user.email} puesto en estado AVAILABLE y sesión iniciada`);
+    }
+
+    await this.userRepository.update(user.id, updateData);
 
     this.logger.log(`Usuario ${user.email} inició sesión`);
 
@@ -99,8 +122,11 @@ export class AuthService {
           id: user.role.id,
           name: user.role.name,
           permissions: user.role.permissions.map((p) => ({
+            id: p.id,
+            name: `${p.module}:${p.action}`,
             module: p.module,
             action: p.action,
+            description: p.description,
           })),
         },
       },
@@ -179,9 +205,26 @@ export class AuthService {
    * Logout
    */
   async logout(userId: string) {
-    await this.userRepository.update(userId, {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    
+    const updateData: any = {
       refreshToken: null,
-    });
+    };
+
+    // Si es agente, ponerlo offline y finalizar sesión
+    if (user?.isAgent) {
+      updateData.agentState = AgentState.OFFLINE;
+      
+      // Finalizar sesión activa de agente
+      const activeSession = await this.agentSessionsService.getActiveSession(userId);
+      if (activeSession) {
+        await this.agentSessionsService.endSession(activeSession.id);
+      }
+      
+      this.logger.log(`✅ Agente ${userId} puesto en estado OFFLINE y sesión finalizada`);
+    }
+
+    await this.userRepository.update(userId, updateData);
 
     this.logger.log(`Usuario ${userId} cerró sesión`);
   }

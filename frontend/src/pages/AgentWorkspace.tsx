@@ -6,17 +6,43 @@ import { Box } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
 import { fetchMyChats, setSelectedChat } from '../store/slices/chatsSlice';
 import { socketService } from '../services/socket.service';
+import { useNotifications } from '../hooks/useNotifications';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
 import ChatList from '../components/chat/ChatList';
 import ChatMessages from '../components/chat/ChatMessages';
 import DebtorPanel from '../components/chat/DebtorPanel';
+import WorkdayControls from '../components/workday/WorkdayControls';
 
 export default function AgentWorkspace() {
   const dispatch = useAppDispatch();
   const [sidebarOpen] = useState(true);
   const { user } = useAppSelector((state) => state.auth);
   const { selectedChat, items: myChats } = useAppSelector((state) => state.chats);
+
+  // ========== HOOK DE NOTIFICACIONES ==========
+  useNotifications({
+    onChatAssigned: (data) => {
+      console.log('🔔 Chat asignado:', data);
+      dispatch(fetchMyChats({}));
+    },
+    onChatTransferred: (data) => {
+      console.log('🔔 Chat transferido:', data);
+      dispatch(fetchMyChats({}));
+    },
+    onAgentTimeoutWarning: (data) => {
+      console.log('⚠️ Warning de timeout:', data);
+    },
+    onChatClosed: (data) => {
+      console.log('🚫 Chat cerrado:', data);
+      dispatch(fetchMyChats({}));
+    },
+    onNewMessage: (data) => {
+      console.log('💬 Nuevo mensaje:', data);
+    },
+    enableSounds: true,
+    enableBrowserNotifications: true,
+  });
 
   // Manejar chatId desde query params
   useEffect(() => {
@@ -37,16 +63,24 @@ export default function AgentWorkspace() {
     // Cargar chats del agente
     dispatch(fetchMyChats({}));
 
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeAssigned: (() => void) | undefined;
+    let unsubscribeUnassigned: (() => void) | undefined;
 
     // Configurar WebSocket
     if (user) {
       const token = localStorage.getItem('accessToken');
       if (token) {
-        // Primero registrar el listener
-        unsubscribe = socketService.onChatAssigned((data) => {
+        // Registrar listener para chats asignados
+        unsubscribeAssigned = socketService.onChatAssigned((data) => {
           console.log('📩 Nuevo chat asignado!', data);
           // Recargar la lista de chats inmediatamente
+          dispatch(fetchMyChats({}));
+        });
+
+        // Registrar listener para chats desasignados (transferidos al bot)
+        unsubscribeUnassigned = socketService.onChatUnassigned((data) => {
+          console.log('🤖 Chat transferido al bot', data);
+          // Recargar la lista de chats para remover el chat desasignado
           dispatch(fetchMyChats({}));
         });
 
@@ -73,9 +107,12 @@ export default function AgentWorkspace() {
     }
 
     return () => {
-      // Limpiar listener al desmontar
-      if (unsubscribe) {
-        unsubscribe();
+      // Limpiar listeners al desmontar
+      if (unsubscribeAssigned) {
+        unsubscribeAssigned();
+      }
+      if (unsubscribeUnassigned) {
+        unsubscribeUnassigned();
       }
     };
   }, [dispatch, user]);
@@ -120,14 +157,18 @@ export default function AgentWorkspace() {
           )}
         </Box>
 
-        {/* Panel de deudor (derecha) */}
-        <Box sx={{ height: '100%', borderLeft: 1, borderColor: 'divider', overflow: 'hidden' }}>
-          {selectedChat && selectedChat.client ? (
-            <DebtorPanel client={selectedChat.client} chat={selectedChat} />
+        {/* Panel de deudor y controles (derecha) */}
+        <Box sx={{ height: '100%', borderLeft: 1, borderColor: 'divider', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 2, p: 2 }}>
+          {/* Control de jornada laboral */}
+          <WorkdayControls />
+          
+          {/* Panel de deudor */}
+          {selectedChat && (selectedChat.debtor || selectedChat.client) ? (
+            <DebtorPanel client={(selectedChat.debtor || selectedChat.client) ?? null} chat={selectedChat} />
           ) : (
             <Box
               sx={{
-                height: '100%',
+                flexGrow: 1,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -136,7 +177,7 @@ export default function AgentWorkspace() {
                 textAlign: 'center',
               }}
             >
-              {selectedChat ? 'Este chat no tiene cliente asociado' : 'La información del deudor aparecerá aquí'}
+              {selectedChat ? 'Este chat no tiene deudor asociado' : 'La información del deudor aparecerá aquí'}
             </Box>
           )}
         </Box>

@@ -38,6 +38,7 @@ import {
 } from '@mui/icons-material';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
+import { useNotifications } from '../hooks/useNotifications';
 import apiService from '../services/api';
 import { formatRelativeDate } from '../utils/helpers';
 
@@ -87,6 +88,18 @@ export default function AllChatsView() {
     open: false, 
     message: '', 
     severity: 'info' 
+  });
+
+  // ========== HOOK DE NOTIFICACIONES (Supervisores) ==========
+  useNotifications({
+    onChatAssigned: () => {
+      loadData(); // Recargar lista de chats
+    },
+    onChatClosed: () => {
+      loadData(); // Recargar lista de chats
+    },
+    enableSounds: true,
+    enableBrowserNotifications: true,
   });
 
   // Leer query params de la URL

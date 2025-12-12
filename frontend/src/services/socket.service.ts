@@ -11,7 +11,7 @@ import type {
 } from '../types';
 import { notificationService } from './notification.service';
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
 
 class SocketService {
   private socket: Socket | null = null;
@@ -51,14 +51,9 @@ class SocketService {
       console.error('Socket.IO error:', error);
     });
 
-    // DEBUG: Listener global para TODOS los eventos
-    this.socket.onAny((eventName: string, ...args: any[]) => {
-      console.log(`📡 Evento recibido: ${eventName}`, args);
-    });
-
-    // Escuchar eventos personalizados
+    // Escuchar eventos personalizados con un solo listener
     this.socket.onAny((eventName, data) => {
-      console.log(`🔔 Socket event: ${eventName}`, data);
+      console.log(`📡 Socket event: ${eventName}`, data);
       const handlers = this.eventHandlers.get(eventName);
       if (handlers) {
         handlers.forEach(handler => handler(data));
@@ -131,6 +126,15 @@ class SocketService {
       // Reproducir sonido cuando se asigna un chat
       console.log('🔔 [Socket] Chat asignado - Reproduciendo notificación');
       notificationService.notifyChatAssigned(data.clientPhone || 'Cliente nuevo');
+      handler(data);
+    });
+  }
+
+  // Escuchar cuando se desasigna un chat (transferido al bot)
+  onChatUnassigned(handler: (data: any) => void): () => void {
+    console.log('🎧 Registrando listener para chat:unassigned');
+    return this.on<any>('chat:unassigned', (data) => {
+      console.log('🤖 [Socket] Chat desasignado (transferido al bot)');
       handler(data);
     });
   }

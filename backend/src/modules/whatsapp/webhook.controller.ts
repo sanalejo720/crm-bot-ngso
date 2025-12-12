@@ -72,4 +72,21 @@ export class WebhookController {
       throw new BadRequestException('Failed to process webhook');
     }
   }
+
+  /**
+   * Webhook para Twilio
+   */
+  @Post('twilio')
+  async receiveTwilioWebhook(@Body() body: any) {
+    this.logger.log('Received Twilio webhook');
+    this.logger.debug(JSON.stringify(body, null, 2));
+
+    try {
+      await this.whatsappService.processTwilioWebhook(body);
+      return '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
+    } catch (error) {
+      this.logger.error(`Error processing Twilio webhook: ${error.message}`, error.stack);
+      throw new BadRequestException('Failed to process webhook');
+    }
+  }
 }

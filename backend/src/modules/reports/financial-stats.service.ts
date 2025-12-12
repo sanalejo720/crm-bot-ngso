@@ -57,14 +57,15 @@ export class FinancialStatsService {
 
     const totalToRecover = parseFloat(totalToRecoverResult?.total || '0');
 
-    // Total recuperado (suma de pagos con status CUMPLIDA)
+    // Total recuperado (clientes con collectionStatus = 'paid')
     const totalRecoveredResult = await this.clientRepo
       .createQueryBuilder('client')
-      .select('SUM(client.lastPaymentAmount)', 'total')
+      .select('SUM(COALESCE(client.lastPaymentAmount, client.debtAmount))', 'total')
       .addSelect('COUNT(DISTINCT client.id)', 'count')
       .innerJoin('client.chats', 'chat')
       .where('chat.campaignId = :campaignId', { campaignId })
-      .andWhere('client.lastPaymentDate BETWEEN :startDate AND :endDate', {
+      .andWhere("client.collectionStatus = 'paid'")
+      .andWhere('chat.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
         endDate,
       })
@@ -73,15 +74,15 @@ export class FinancialStatsService {
     const totalRecovered = parseFloat(totalRecoveredResult?.total || '0');
     const clientsPaid = parseInt(totalRecoveredResult?.count || '0', 10);
 
-    // Total en promesas (promisePaymentAmount cuando hay fecha de promesa)
+    // Total en promesas (clientes con collectionStatus = 'promise')
     const totalInPromisesResult = await this.clientRepo
       .createQueryBuilder('client')
-      .select('SUM(client.promisePaymentAmount)', 'total')
+      .select('SUM(COALESCE(client.promisePaymentAmount, client.debtAmount))', 'total')
       .addSelect('COUNT(DISTINCT client.id)', 'count')
       .innerJoin('client.chats', 'chat')
       .where('chat.campaignId = :campaignId', { campaignId })
-      .andWhere('client.promisePaymentDate IS NOT NULL')
-      .andWhere('client.promisePaymentDate BETWEEN :startDate AND :endDate', {
+      .andWhere("client.collectionStatus = 'promise'")
+      .andWhere('chat.createdAt BETWEEN :startDate AND :endDate', {
         startDate,
         endDate,
       })

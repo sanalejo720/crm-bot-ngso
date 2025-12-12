@@ -119,7 +119,7 @@ export class BackupsController {
   }
 
   @Post(':id/download')
-  @RequirePermissions({ module: 'backups', action: 'download' })
+  @RequirePermissions({ module: 'backups', action: 'read' })
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
     summary: 'Descargar backup cifrado',

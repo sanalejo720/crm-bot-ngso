@@ -14,6 +14,7 @@ import {
 } from './entities/whatsapp-number.entity';
 import { MetaCloudService } from './providers/meta-cloud.service';
 import { WppConnectService } from './providers/wppconnect.service';
+import { TwilioService } from './providers/twilio.service';
 import { MessageType } from '../messages/entities/message.entity';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class WhatsappService {
     private whatsappNumberRepository: Repository<WhatsappNumber>,
     private metaCloudService: MetaCloudService,
     private wppConnectService: WppConnectService,
+    private twilioService: TwilioService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -69,6 +71,8 @@ export class WhatsappService {
         return await this.sendViaMeta(whatsappNumber, to, content, type, mediaUrl);
       } else if (whatsappNumber.provider === WhatsappProvider.WPPCONNECT) {
         return await this.sendViaWppConnect(whatsappNumber, to, content, type, mediaUrl);
+      } else if (whatsappNumber.provider === WhatsappProvider.TWILIO) {
+        return await this.sendViaTwilio(whatsappNumber, to, content, type, mediaUrl);
       }
 
       throw new BadRequestException('Proveedor no soportado');
@@ -90,6 +94,19 @@ export class WhatsappService {
       this.logger.log('Webhook de Meta procesado correctamente');
     } catch (error) {
       this.logger.error(`Error procesando webhook de Meta: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
+   * Procesar webhook de Twilio
+   */
+  async processTwilioWebhook(payload: any): Promise<void> {
+    try {
+      await this.twilioService.processWebhook(payload);
+      this.logger.log('Webhook de Twilio procesado correctamente');
+    } catch (error) {
+      this.logger.error(`Error procesando webhook de Twilio: ${error.message}`, error.stack);
       throw error;
     }
   }
@@ -171,6 +188,46 @@ export class WhatsappService {
     }
 
     throw new BadRequestException(`Tipo de mensaje ${type} no soportado con WPPConnect`);
+  }
+
+  /**
+   * Enviar mensaje a través de Twilio
+   */
+  private async sendViaTwilio(
+    whatsappNumber: WhatsappNumber,
+    to: string,
+    content: string,
+    type: MessageType,
+    mediaUrl?: string,
+  ) {
+    this.logger.log(`📤 Enviando via Twilio - WhatsApp ID: ${whatsappNumber.id}`);
+    this.logger.log(`📱 From: ${whatsappNumber.twilioPhoneNumber}, To: ${to}, Tipo: ${type}`);
+
+    // Inicializar cliente si no existe
+    this.twilioService.initializeClient(
+      whatsappNumber.id,
+      whatsappNumber.twilioAccountSid,
+      whatsappNumber.twilioAuthToken,
+    );
+
+    if (type === MessageType.TEXT) {
+      return await this.twilioService.sendTextMessage(
+        whatsappNumber.id,
+        whatsappNumber.twilioPhoneNumber,
+        to,
+        content,
+      );
+    } else if (type === MessageType.IMAGE || type === MessageType.DOCUMENT) {
+      return await this.twilioService.sendMediaMessage(
+        whatsappNumber.id,
+        whatsappNumber.twilioPhoneNumber,
+        to,
+        content,
+        mediaUrl,
+      );
+    }
+
+    throw new BadRequestException(`Tipo de mensaje ${type} no soportado con Twilio`);
   }
 
   /**
@@ -309,5 +366,91 @@ export class WhatsappService {
         status: n.status,
       })),
     };
+  }
+
+  /**
+   * Enviar mensaje con botones interactivos
+   */
+  async sendButtonsMessage(
+    whatsappNumberId: string,
+    to: string,
+    title: string,
+    description: string,
+    buttons: Array<{ id: string; text: string }>,
+  ) {
+    const whatsappNumber = await this.findOne(whatsappNumberId);
+
+    if (whatsappNumber.provider !== WhatsappProvider.WPPCONNECT) {
+      throw new BadRequestException('Botones interactivos solo soportados con WPPConnect');
+    }
+
+    const sessionName = whatsappNumber.phoneNumber;
+    const formattedTo = to.includes('@') ? to : `${to}@c.us`;
+
+    this.logger.log(`📤 Enviando botones via WPPConnect - To: ${formattedTo}`);
+
+    try {
+      const result = await this.wppConnectService.sendButtonsMessage(
+        sessionName,
+        formattedTo,
+        title,
+        description,
+        buttons,
+      );
+
+      return {
+        messageId: result?.id || `wpp-btn-${Date.now()}`,
+        metadata: result,
+      };
+    } catch (error) {
+      this.logger.error(`Error enviando botones: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Enviar lista interactiva
+   */
+  async sendListMessage(
+    whatsappNumberId: string,
+    to: string,
+    title: string,
+    description: string,
+    buttonText: string,
+    sections: Array<{
+      title: string;
+      rows: Array<{ id: string; title: string; description?: string }>;
+    }>,
+  ) {
+    const whatsappNumber = await this.findOne(whatsappNumberId);
+
+    if (whatsappNumber.provider !== WhatsappProvider.WPPCONNECT) {
+      throw new BadRequestException('Listas interactivas solo soportadas con WPPConnect');
+    }
+
+    const sessionName = whatsappNumber.phoneNumber;
+    const formattedTo = to.includes('@') ? to : `${to}@c.us`;
+
+    this.logger.log(`📤 Enviando lista via WPPConnect - To: ${formattedTo}`);
+
+    try {
+      const result = await this.wppConnectService.sendListMessage(
+        sessionName,
+        formattedTo,
+        title,
+        description,
+        'Más opciones',
+        buttonText,
+        sections,
+      );
+
+      return {
+        messageId: result?.id || `wpp-list-${Date.now()}`,
+        metadata: result,
+      };
+    } catch (error) {
+      this.logger.error(`Error enviando lista: ${error.message}`);
+      throw error;
+    }
   }
 }

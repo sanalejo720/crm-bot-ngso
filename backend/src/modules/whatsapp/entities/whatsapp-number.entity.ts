@@ -12,10 +12,12 @@ import {
 import { Exclude } from 'class-transformer';
 import { Campaign } from '../../campaigns/entities/campaign.entity';
 import { Chat } from '../../chats/entities/chat.entity';
+import { BotFlow } from '../../bot/entities/bot-flow.entity';
 
 export enum WhatsappProvider {
   META_CLOUD = 'meta',
   WPPCONNECT = 'wppconnect',
+  TWILIO = 'twilio',
 }
 
 export enum ConnectionStatus {
@@ -72,6 +74,17 @@ export class WhatsappNumber {
   @Exclude()
   serverUrl: string; // Para WPPConnect
 
+  @Column({ nullable: true })
+  @Exclude()
+  twilioAccountSid: string; // Para Twilio
+
+  @Column({ nullable: true })
+  @Exclude()
+  twilioAuthToken: string; // Para Twilio
+
+  @Column({ nullable: true })
+  twilioPhoneNumber: string; // Para Twilio (formato: whatsapp:+14155238886)
+
   @Column({ type: 'text', nullable: true })
   @Exclude()
   qrCode: string;
@@ -98,6 +111,13 @@ export class WhatsappNumber {
 
   @Column({ nullable: true })
   campaignId: string;
+
+  @ManyToOne(() => BotFlow, { nullable: true })
+  @JoinColumn({ name: 'botFlowId' })
+  botFlow: BotFlow;
+
+  @Column({ nullable: true })
+  botFlowId: string;
 
   @OneToMany(() => Chat, (chat) => chat.whatsappNumber)
   chats: Chat[];

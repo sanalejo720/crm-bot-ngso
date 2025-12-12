@@ -1,0 +1,6 @@
+nombre,tipo_doc,documento,telefono,correo,direccion,deuda,deuda_inicial,mora,ultimo_pago,promesa,estado,notas,producto,credito,vencimiento,compania,campana
+Juan Perez,CC,1234567890,3001234567,juan@example.com,Calle 123 #45-67,1500000,2000000,30,2024-10-15,2024-12-01,active,Cliente con buen historial,Tarjeta de Crédito,TC-001,2024-11-30,Banco XYZ,CAMP-001
+Maria Rodriguez,CC,9876543210,3109876543,maria@example.com,Carrera 45 #23-45,3200000,3200000,45,,,active,Pendiente de contacto,Crédito Personal,CP-002,2024-12-15,Banco ABC,CAMP-001
+Carlos Gomez,CE,CE123456,3201112233,carlos@example.com,Avenida 1 #2-3,850000,1000000,15,2024-11-01,2024-11-25,negotiating,En proceso de negociación,Préstamo,PR-003,2024-12-01,FinanCorp,CAMP-002
+Ana Martinez,CC,1122334455,3157778899,ana@example.com,Transversal 10 #20-30,2100000,2500000,60,2024-09-10,,defaulted,Moroso,Tarjeta de Crédito,TC-004,2024-10-30,Banco XYZ,CAMP-001
+Pedro Lopez,NIT,900123456,3182223344,pedro@company.com,Zona Industrial #15,5000000,5000000,90,,,active,Empresa pequeña,Crédito Empresarial,CE-005,2024-12-31,Banco DEF,CAMP-003

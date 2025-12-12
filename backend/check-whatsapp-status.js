@@ -4,8 +4,8 @@ const client = new Client({
   host: 'localhost',
   port: 5432,
   database: 'crm_whatsapp',
-  user: 'postgres',
-  password: 'postgres123'
+  user: 'crm_admin',
+  password: 'CRM_NgsoPass2024!'
 });
 
 async function checkStatus() {

@@ -78,7 +78,7 @@ export class CampaignsService {
   async findOne(id: string): Promise<Campaign> {
     const campaign = await this.campaignRepository.findOne({
       where: { id },
-      relations: ['whatsappNumbers', 'chats', 'clients'],
+      relations: ['whatsappNumbers', 'chats', 'debtors'],
     });
 
     if (!campaign) {
@@ -189,21 +189,21 @@ export class CampaignsService {
       .groupBy('chat.status')
       .getRawMany();
 
-    // Total de clientes
-    const totalClients = await this.campaignRepository
+    // Total de deudores
+    const totalDebtors = await this.campaignRepository
       .createQueryBuilder('campaign')
-      .leftJoin('campaign.clients', 'client')
+      .leftJoin('campaign.debtors', 'debtor')
       .where('campaign.id = :id', { id })
       .getCount();
 
-    // Clientes por estado de lead
-    const clientsByLeadStatus = await this.campaignRepository
+    // Deudores por estado
+    const debtorsByStatus = await this.campaignRepository
       .createQueryBuilder('campaign')
-      .leftJoin('campaign.clients', 'client')
-      .select('client.leadStatus', 'status')
+      .leftJoin('campaign.debtors', 'debtor')
+      .select('debtor.status', 'status')
       .addSelect('COUNT(*)', 'count')
       .where('campaign.id = :id', { id })
-      .groupBy('client.leadStatus')
+      .groupBy('debtor.status')
       .getRawMany();
 
     return {
@@ -215,8 +215,8 @@ export class CampaignsService {
         acc[item.status] = parseInt(item.count);
         return acc;
       }, {}),
-      totalClients,
-      clientsByLeadStatus: clientsByLeadStatus.reduce((acc, item) => {
+      totalDebtors,
+      debtorsByStatus: debtorsByStatus.reduce((acc, item) => {
         acc[item.status] = parseInt(item.count);
         return acc;
       }, {}),

@@ -3,12 +3,15 @@ import {
   PrimaryGeneratedColumn,
   Column,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
 } from 'typeorm';
 import { Chat } from '../../chats/entities/chat.entity';
 import { Task } from '../../tasks/entities/task.entity';
+import { Campaign } from '../../campaigns/entities/campaign.entity';
 
 export enum ClientStatus {
   LEAD = 'lead',
@@ -31,6 +34,7 @@ export enum LeadStatus {
 @Index(['phone'], { unique: true })
 @Index(['email'])
 @Index(['status'])
+@Index(['campaignId'])
 export class Client {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -124,6 +128,14 @@ export class Client {
 
   @Column({ length: 100, default: 'Colombia', nullable: true })
   country: string;
+
+  // Relación con campaña
+  @ManyToOne(() => Campaign, { nullable: true })
+  @JoinColumn({ name: 'campaignId' })
+  campaign: Campaign;
+
+  @Column({ type: 'uuid', nullable: true })
+  campaignId: string;
 
   // Relations
   @OneToMany(() => Chat, (chat) => chat.client)

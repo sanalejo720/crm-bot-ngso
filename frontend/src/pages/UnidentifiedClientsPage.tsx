@@ -12,28 +12,25 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Grid,
   Card,
   CardContent,
 } from '@mui/material';
+import { DataGrid } from '@mui/x-data-grid';
+import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import {
-  DataGrid,
-  GridColDef,
-  GridRenderCellParams,
-} from '@mui/x-data-grid';
-import {
-  Add as AddIcon,
   Edit as EditIcon,
   PersonAdd as PersonAddIcon,
   Phone as PhoneIcon,
   CheckCircle as CheckCircleIcon,
   Pending as PendingIcon,
   ContactPhone as ContactedIcon,
-  Transfer as TransferIcon,
+  SwapHoriz as TransferIcon,
 } from '@mui/icons-material';
-import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../hooks/usePermissions';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import ModernSidebar from '../components/layout/ModernSidebar';
+import AppHeader from '../components/layout/AppHeader';
 
 interface UnidentifiedClient {
   id: string;
@@ -65,7 +62,8 @@ const statusConfig = {
 };
 
 const UnidentifiedClientsPage: React.FC = () => {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission } = usePermissions();
+  const [sidebarOpen] = useState(true);
   const [clients, setClients] = useState<UnidentifiedClient[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
@@ -74,6 +72,7 @@ const UnidentifiedClientsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [stats, setStats] = useState<Stats>({});
+  // @ts-ignore - Used in dialog actions
   const [selectedClient, setSelectedClient] = useState<UnidentifiedClient | null>(null);
   const [openDialog, setOpenDialog] = useState(false);
   const [dialogType, setDialogType] = useState<'edit' | 'assign' | 'status'>('edit');
@@ -114,6 +113,7 @@ const UnidentifiedClientsPage: React.FC = () => {
     }
   };
 
+  // @ts-ignore - Used for future dialog implementation
   const handleUpdateStatus = async (id: string, status: string, notes?: string) => {
     try {
       await api.patch(`/unidentified-clients/${id}/status`, { status, notes });
@@ -126,6 +126,7 @@ const UnidentifiedClientsPage: React.FC = () => {
     }
   };
 
+  // @ts-ignore - Used for future dialog implementation
   const handleAssign = async (id: string, userId: string) => {
     try {
       await api.patch(`/unidentified-clients/${id}/assign`, { userId });
@@ -153,13 +154,13 @@ const UnidentifiedClientsPage: React.FC = () => {
       field: 'name',
       headerName: 'Nombre',
       width: 180,
-      valueGetter: (params) => params.row.name || 'Sin nombre',
+      valueGetter: (params: any) => params.row.name || 'Sin nombre',
     },
     {
       field: 'documentNumber',
       headerName: 'Documento',
       width: 130,
-      valueGetter: (params) => params.row.documentNumber || '-',
+      valueGetter: (params: any) => params.row.documentNumber || '-',
     },
     {
       field: 'status',
@@ -181,13 +182,13 @@ const UnidentifiedClientsPage: React.FC = () => {
       field: 'assignedTo',
       headerName: 'Asignado a',
       width: 180,
-      valueGetter: (params) => params.row.assignedTo?.name || 'Sin asignar',
+      valueGetter: (params: any) => params.row.assignedTo?.name || 'Sin asignar',
     },
     {
       field: 'createdAt',
       headerName: 'Fecha',
       width: 160,
-      valueGetter: (params) => new Date(params.row.createdAt).toLocaleString('es-CO'),
+      valueGetter: (params: any) => new Date(params.row.createdAt).toLocaleString('es-CO'),
     },
     {
       field: 'actions',
@@ -229,14 +230,51 @@ const UnidentifiedClientsPage: React.FC = () => {
 
   if (!hasPermission('unidentified-clients', 'read')) {
     return (
-      <Box p={3}>
-        <Typography>No tienes permisos para ver esta sección</Typography>
+      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+        <ModernSidebar open={sidebarOpen} />
+        <Box sx={{ flexGrow: 1 }}>
+          <AppHeader />
+          <Box p={3}>
+            <Paper sx={{ p: 3 }}>
+              <Typography variant="h5" gutterBottom color="error">
+                ⛔ No tienes permisos para ver esta sección
+              </Typography>
+              <Typography variant="body1" sx={{ mt: 2 }}>
+                Necesitas el permiso: <strong>unidentified_clients:read</strong>
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
+                Tu rol actual: <strong>{user?.role?.name || 'Desconocido'}</strong>
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }} color="text.secondary">
+                Por favor contacta al administrador del sistema.
+              </Typography>
+              {user?.role?.permissions && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Tus permisos actuales: {user.role.permissions.length}
+                  </Typography>
+                  <Button 
+                    size="small" 
+                    onClick={() => console.log('Permisos:', user.role.permissions.map((p: any) => p.name))}
+                    sx={{ mt: 1 }}
+                  >
+                    Ver en consola
+                  </Button>
+                </Box>
+              )}
+            </Paper>
+          </Box>
+        </Box>
       </Box>
     );
   }
 
   return (
-    <Box p={3}>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <ModernSidebar open={sidebarOpen} />
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <AppHeader />
+        <Box p={3} sx={{ flexGrow: 1, overflow: 'auto' }}>
       <Box mb={3}>
         <Typography variant="h4" gutterBottom>
           Clientes No Identificados
@@ -247,9 +285,9 @@ const UnidentifiedClientsPage: React.FC = () => {
       </Box>
 
       {/* Statistics Cards */}
-      <Grid container spacing={2} mb={3}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
         {Object.entries(statusConfig).map(([key, config]) => (
-          <Grid item xs={12} sm={6} md={3} key={key}>
+          <div key={key}>
             <Card>
               <CardContent>
                 <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -263,41 +301,37 @@ const UnidentifiedClientsPage: React.FC = () => {
                 </Box>
               </CardContent>
             </Card>
-          </Grid>
+          </div>
         ))}
-      </Grid>
+      </Box>
 
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} sm={4}>
-            <TextField
-              fullWidth
-              size="small"
-              label="Buscar"
-              placeholder="Teléfono, nombre o documento"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </Grid>
-          <Grid item xs={12} sm={3}>
-            <TextField
-              fullWidth
-              select
-              size="small"
-              label="Estado"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <MenuItem value="">Todos</MenuItem>
-              {Object.entries(statusConfig).map(([key, config]) => (
-                <MenuItem key={key} value={key}>
-                  {config.label}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Grid>
-          <Grid item xs={12} sm={5} display="flex" justifyContent="flex-end">
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1.5fr 2.5fr' }, gap: 2, alignItems: 'center' }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Buscar"
+            placeholder="Teléfono, nombre o documento"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          <TextField
+            fullWidth
+            select
+            size="small"
+            label="Estado"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <MenuItem value="">Todos</MenuItem>
+            {Object.entries(statusConfig).map(([key, config]) => (
+              <MenuItem key={key} value={key}>
+                {config.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Box display="flex" justifyContent="flex-end">
             <Button
               variant="outlined"
               onClick={() => {
@@ -307,8 +341,8 @@ const UnidentifiedClientsPage: React.FC = () => {
             >
               Limpiar Filtros
             </Button>
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
       </Paper>
 
       {/* Data Grid */}
@@ -318,14 +352,15 @@ const UnidentifiedClientsPage: React.FC = () => {
           columns={columns}
           paginationMode="server"
           rowCount={total}
-          page={page}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          rowsPerPageOptions={[10, 25, 50]}
+          paginationModel={{ page, pageSize }}
+          onPaginationModelChange={(model) => {
+            setPage(model.page);
+            setPageSize(model.pageSize);
+          }}
+          pageSizeOptions={[10, 25, 50]}
           loading={loading}
           autoHeight
-          disableSelectionOnClick
+          disableRowSelectionOnClick
         />
       </Paper>
 
@@ -342,6 +377,8 @@ const UnidentifiedClientsPage: React.FC = () => {
           <Button onClick={() => setOpenDialog(false)}>Cancelar</Button>
         </DialogActions>
       </Dialog>
+        </Box>
+      </Box>
     </Box>
   );
 };

@@ -11,6 +11,8 @@ import { Server, Socket } from 'socket.io';
 import { Logger, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { OnEvent } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { Chat } from '../chats/entities/chat.entity';
 import { Message } from '../messages/entities/message.entity';
 import { User, AgentState } from '../users/entities/user.entity';
@@ -37,7 +39,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(EventsGateway.name);
   private connectedUsers: Map<string, string> = new Map(); // userId -> socketId
 
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
+  ) {}
 
   /**
    * Manejar nueva conexión
@@ -66,9 +72,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Unir a sala personal
       client.join(`user:${payload.sub}`);
 
-      // Si es agente, unir a sala de agentes
-      if (payload.role?.name === 'Agente' || payload.role?.name === 'Supervisor') {
+      // Si es agente, unir a sala de agentes y actualizar estado a AVAILABLE
+      const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+      if (user?.isAgent) {
         client.join('agents');
+        
+        // Actualizar estado a AVAILABLE si estaba OFFLINE
+        if (user.agentState === AgentState.OFFLINE) {
+          await this.userRepository.update(payload.sub, {
+            agentState: AgentState.AVAILABLE,
+            lastActivityAt: new Date(),
+          });
+          this.logger.log(`✅ Agente ${payload.email} puesto en estado AVAILABLE (WebSocket)`);
+        }
       }
 
       // Si es supervisor, unir a sala de supervisores
@@ -93,9 +109,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /**
    * Manejar desconexión
    */
-  handleDisconnect(client: AuthenticatedSocket) {
+  async handleDisconnect(client: AuthenticatedSocket) {
     if (client.userId) {
       this.connectedUsers.delete(client.userId);
+
+      // Si era agente, ponerlo OFFLINE
+      const user = await this.userRepository.findOne({ where: { id: client.userId } });
+      if (user?.isAgent) {
+        await this.userRepository.update(client.userId, {
+          agentState: AgentState.OFFLINE,
+          lastActivityAt: new Date(),
+        });
+        this.logger.log(`✅ Agente ${client.userId} puesto en estado OFFLINE (desconexión WebSocket)`);
+      }
 
       this.logger.log(`Cliente desconectado: ${client.userId} (${client.id})`);
 
@@ -284,6 +310,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
+   * Evento: Chat desasignado (transferido al bot)
+   */
+  @OnEvent('chat.unassigned')
+  handleChatUnassigned(data: {
+    chat: Chat;
+    previousAgentId: string;
+    reason: string;
+  }) {
+    this.logger.log(`Evento chat.unassigned: ${data.chat.id} desasignado del agente ${data.previousAgentId}`);
+
+    // Notificar al agente que el chat fue desasignado
+    this.server.to(`user:${data.previousAgentId}`).emit('chat:unassigned', {
+      chatId: data.chat.id,
+      reason: data.reason,
+      timestamp: new Date(),
+    });
+
+    // Notificar a supervisores
+    this.server.to('supervisors').emit('chat:unassigned', {
+      chatId: data.chat.id,
+      previousAgentId: data.previousAgentId,
+      reason: data.reason,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
    * Evento: Chat cerrado
    */
   @OnEvent('chat.closed')
@@ -449,6 +502,150 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
+  /**
+   * Evento: Warning de timeout del agente (5 minutos)
+   */
+  @OnEvent('chat.agent.timeout.warning')
+  handleAgentTimeoutWarning(data: { chatId: number; agentId: number; minutesSinceLastMessage: number }) {
+    this.logger.log(`⚠️ Warning de timeout de agente: Chat ${data.chatId}, Agente ${data.agentId}`);
+
+    // Notificar al agente específico
+    this.server.to(`user:${data.agentId}`).emit('chat:agent:timeout:warning', {
+      chatId: data.chatId,
+      minutesSinceLastMessage: data.minutesSinceLastMessage,
+      message: `⚠️ El cliente está esperando tu respuesta hace ${data.minutesSinceLastMessage} minutos`,
+      timestamp: new Date(),
+      sound: 'warning',
+      priority: 'high',
+    });
+
+    // Notificar a supervisores
+    this.server.to('supervisors').emit('chat:agent:timeout:warning', {
+      chatId: data.chatId,
+      agentId: data.agentId,
+      minutesSinceLastMessage: data.minutesSinceLastMessage,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: Warning de timeout del cliente (5 minutos)
+   */
+  @OnEvent('chat.client.timeout.warning')
+  handleClientTimeoutWarning(data: { chatId: number; agentId: number; minutesSinceLastMessage: number }) {
+    this.logger.log(`⚠️ Warning de timeout de cliente: Chat ${data.chatId}`);
+
+    // Notificar al agente específico
+    this.server.to(`user:${data.agentId}`).emit('chat:client:timeout:warning', {
+      chatId: data.chatId,
+      minutesSinceLastMessage: data.minutesSinceLastMessage,
+      message: `⏰ El cliente no responde hace ${data.minutesSinceLastMessage} minutos. El chat se cerrará pronto.`,
+      timestamp: new Date(),
+      sound: 'notification',
+      priority: 'medium',
+    });
+  }
+
+  /**
+   * Evento: Chat cerrado por timeout del agente
+   */
+  @OnEvent('chat.closed.agent.timeout')
+  handleChatClosedByAgentTimeout(data: { chatId: number; agentId: number }) {
+    this.logger.log(`🚫 Chat ${data.chatId} cerrado por timeout de agente ${data.agentId}`);
+
+    // Notificar al agente
+    this.server.to(`user:${data.agentId}`).emit('chat:closed:agent:timeout', {
+      chatId: data.chatId,
+      message: '🚫 Chat cerrado automáticamente por no responder a tiempo',
+      timestamp: new Date(),
+      sound: 'alert',
+      priority: 'critical',
+    });
+
+    // Notificar a supervisores
+    this.server.to('supervisors').emit('chat:closed:agent:timeout', {
+      chatId: data.chatId,
+      agentId: data.agentId,
+      timestamp: new Date(),
+    });
+
+    // Notificar a la sala del chat
+    this.server.to(`chat:${data.chatId}`).emit('chat:closed', {
+      chatId: data.chatId,
+      reason: 'agent_timeout',
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: Chat cerrado por timeout del cliente
+   */
+  @OnEvent('chat.closed.client.timeout')
+  handleChatClosedByClientTimeout(data: { chatId: number; agentId: number }) {
+    this.logger.log(`🚫 Chat ${data.chatId} cerrado por inactividad del cliente`);
+
+    // Notificar al agente
+    this.server.to(`user:${data.agentId}`).emit('chat:closed:client:timeout', {
+      chatId: data.chatId,
+      message: '✅ Chat cerrado automáticamente por inactividad del cliente',
+      timestamp: new Date(),
+      sound: 'success',
+      priority: 'low',
+    });
+
+    // Notificar a supervisores
+    this.server.to('supervisors').emit('chat:closed:client:timeout', {
+      chatId: data.chatId,
+      agentId: data.agentId,
+      timestamp: new Date(),
+    });
+
+    // Notificar a la sala del chat
+    this.server.to(`chat:${data.chatId}`).emit('chat:closed', {
+      chatId: data.chatId,
+      reason: 'client_timeout',
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Evento: Chat cerrado automáticamente (24h inactividad)
+   */
+  @OnEvent('chat.auto.closed')
+  handleChatAutoClosed(data: { chatId: number; agentId?: number; inactiveHours: number; lastActivity: Date }) {
+    this.logger.log(`🔒 Chat ${data.chatId} cerrado automáticamente por ${data.inactiveHours}h de inactividad`);
+
+    // Si había agente asignado, notificarle
+    if (data.agentId) {
+      this.server.to(`user:${data.agentId}`).emit('chat:auto:closed', {
+        chatId: data.chatId,
+        inactiveHours: data.inactiveHours,
+        lastActivity: data.lastActivity,
+        message: `🔒 Chat cerrado automáticamente por ${data.inactiveHours} horas de inactividad`,
+        timestamp: new Date(),
+        sound: 'notification',
+        priority: 'low',
+      });
+    }
+
+    // Notificar a supervisores
+    this.server.to('supervisors').emit('chat:auto:closed', {
+      chatId: data.chatId,
+      agentId: data.agentId,
+      inactiveHours: data.inactiveHours,
+      lastActivity: data.lastActivity,
+      timestamp: new Date(),
+    });
+
+    // Notificar a la sala del chat
+    this.server.to(`chat:${data.chatId}`).emit('chat:closed', {
+      chatId: data.chatId,
+      reason: 'auto_close',
+      inactiveHours: data.inactiveHours,
+      timestamp: new Date(),
+    });
+  }
+
   // ==================== MÉTODOS PÚBLICOS ====================
 
   /**
@@ -491,5 +688,167 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   getConnectedUsers(): string[] {
     return Array.from(this.connectedUsers.keys());
+  }
+
+  /**
+   * Notificar timeout de agente con sonido y notificación del navegador
+   */
+  notifyAgentTimeout(agentId: number, chatId: number, minutesSinceLastMessage: number) {
+    this.logger.log(`🔔 Notificando timeout de agente: ${agentId} - Chat ${chatId}`);
+
+    this.server.to(`user:${agentId}`).emit('notification:agent:timeout', {
+      type: 'agent_timeout',
+      chatId,
+      minutesSinceLastMessage,
+      title: '⚠️ Cliente esperando respuesta',
+      message: `El cliente del chat #${chatId} está esperando hace ${minutesSinceLastMessage} minutos`,
+      sound: 'warning',
+      vibrate: [200, 100, 200],
+      priority: 'high',
+      timestamp: new Date(),
+      actions: [
+        { action: 'view', title: 'Ver chat' },
+        { action: 'dismiss', title: 'Ignorar' },
+      ],
+    });
+  }
+
+  /**
+   * Notificar timeout de cliente con sonido
+   */
+  notifyClientTimeout(agentId: number, chatId: number, minutesSinceLastMessage: number) {
+    this.logger.log(`🔔 Notificando timeout de cliente: Chat ${chatId}`);
+
+    this.server.to(`user:${agentId}`).emit('notification:client:timeout', {
+      type: 'client_timeout',
+      chatId,
+      minutesSinceLastMessage,
+      title: '⏰ Cliente inactivo',
+      message: `El cliente del chat #${chatId} no responde hace ${minutesSinceLastMessage} minutos`,
+      sound: 'notification',
+      priority: 'medium',
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Reproducir sonido de notificación
+   */
+  playSoundNotification(userId: string, soundType: 'success' | 'warning' | 'error' | 'notification' | 'alert') {
+    this.server.to(`user:${userId}`).emit('sound:play', {
+      type: soundType,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Enviar notificación del navegador (Browser Notification API)
+   */
+  sendBrowserNotification(
+    userId: string,
+    title: string,
+    options: {
+      body?: string;
+      icon?: string;
+      badge?: string;
+      sound?: string;
+      vibrate?: number[];
+      tag?: string;
+      requireInteraction?: boolean;
+    },
+  ) {
+    this.server.to(`user:${userId}`).emit('browser:notification', {
+      title,
+      options,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notificar a agente que su chat será cerrado pronto
+   */
+  notifyUpcomingAutoClose(agentId: number, chatId: number, hoursRemaining: number) {
+    this.logger.log(`📅 Notificando auto-cierre próximo: Chat ${chatId} - ${hoursRemaining}h restantes`);
+
+    this.server.to(`user:${agentId}`).emit('notification:upcoming:close', {
+      type: 'upcoming_close',
+      chatId,
+      hoursRemaining,
+      title: '📅 Chat próximo a cerrarse',
+      message: `El chat #${chatId} se cerrará automáticamente en ${hoursRemaining} horas por inactividad`,
+      sound: 'notification',
+      priority: 'low',
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notificar cierre de chat al agente
+   */
+  notifyAgentChatClosed(agentId: number, chatId: number, reason: string, message: string) {
+    this.logger.log(`🚫 Notificando cierre de chat: ${chatId} - Razón: ${reason}`);
+
+    const soundMap = {
+      agent_timeout: 'alert',
+      client_timeout: 'success',
+      auto_close: 'notification',
+      manual: 'success',
+    };
+
+    const priorityMap = {
+      agent_timeout: 'critical',
+      client_timeout: 'low',
+      auto_close: 'low',
+      manual: 'medium',
+    };
+
+    this.server.to(`user:${agentId}`).emit('notification:chat:closed', {
+      type: 'chat_closed',
+      chatId,
+      reason,
+      message,
+      sound: soundMap[reason] || 'notification',
+      priority: priorityMap[reason] || 'medium',
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notificar a supervisores sobre métricas de timeouts
+   */
+  notifySupervisorsTimeoutStats(stats: {
+    agentTimeouts: number;
+    clientTimeouts: number;
+    autoClosures: number;
+    period: string;
+  }) {
+    this.logger.log(`📊 Enviando estadísticas de timeouts a supervisores`);
+
+    this.server.to('supervisors').emit('stats:timeouts', {
+      ...stats,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Notificar nuevo chat en cola de espera
+   */
+  notifyWaitingQueueUpdate(queueCount: number, chatId?: number) {
+    this.logger.log(`📋 Actualizando cola de espera: ${queueCount} chats`);
+
+    this.server.to('supervisors').emit('queue:waiting:update', {
+      queueCount,
+      chatId,
+      timestamp: new Date(),
+    });
+
+    // Si hay nuevo chat, reproducir sonido a supervisores
+    if (chatId) {
+      this.server.to('supervisors').emit('sound:play', {
+        type: 'notification',
+        reason: 'new_waiting_chat',
+        chatId,
+      });
+    }
   }
 }

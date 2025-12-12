@@ -46,9 +46,10 @@ interface WhatsAppNumber {
   id: string;
   phoneNumber: string;
   displayName: string;
-  provider: 'wppconnect' | 'meta';
+  provider: 'wppconnect' | 'meta' | 'twilio';
   status: 'connected' | 'disconnected' | 'qr_waiting' | 'error' | 'pending_verification';
   campaignId?: string;
+  botFlowId?: string;
   campaign?: { id: string; name: string };
   lastError?: string;
   isActive: boolean;
@@ -60,23 +61,34 @@ interface Campaign {
   name: string;
 }
 
+interface BotFlow {
+  id: string;
+  name: string;
+  description?: string;
+  status: string;
+}
+
 const WhatsAppManagement: React.FC = () => {
   const [numbers, setNumbers] = useState<WhatsAppNumber[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [botFlows, setBotFlows] = useState<BotFlow[]>([]);
   const [loading, setLoading] = useState(true);
   const [openAddDialog, setOpenAddDialog] = useState(false);
+  const [openEditDialog, setOpenEditDialog] = useState(false);
   const [openQRDialog, setOpenQRDialog] = useState(false);
   const [openMetaDialog, setOpenMetaDialog] = useState(false);
   const [qrCode, setQrCode] = useState<string>('');
   const [selectedNumber, setSelectedNumber] = useState<WhatsAppNumber | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [editingNumber, setEditingNumber] = useState<WhatsAppNumber | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
     phoneNumber: '',
     displayName: '',
-    provider: 'wppconnect' as 'wppconnect' | 'meta',
+    provider: 'wppconnect' as 'wppconnect' | 'meta' | 'twilio',
     campaignId: '',
+    botFlowId: '',
   });
 
   const [metaConfig, setMetaConfig] = useState({
@@ -85,9 +97,16 @@ const WhatsAppManagement: React.FC = () => {
     businessAccountId: '',
   });
 
+  const [twilioConfig, setTwilioConfig] = useState({
+    accountSid: '',
+    authToken: '',
+    phoneNumber: '',
+  });
+
   useEffect(() => {
     loadNumbers();
     loadCampaigns();
+    loadBotFlows();
     connectSocket();
 
     return () => {
@@ -107,7 +126,8 @@ const WhatsAppManagement: React.FC = () => {
       return;
     }
     
-    const newSocket = io('http://localhost:3000/events', {
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || window.location.origin;
+    const newSocket = io(`${socketUrl}/events`, {
       auth: { token },
       transports: ['websocket'],
       reconnection: true,
@@ -179,15 +199,55 @@ const WhatsAppManagement: React.FC = () => {
     }
   };
 
+  const loadBotFlows = async () => {
+    try {
+      const response = await api.get('/bot-flows');
+      console.log('🤖 Bot flows response completo:', JSON.stringify(response.data, null, 2));
+      // La estructura es: response.data.data.data (anidado)
+      const flows = response.data.data?.data || response.data.data || response.data || [];
+      console.log('🤖 Bot flows extraídos:', flows);
+      console.log('🤖 Es array?:', Array.isArray(flows));
+      console.log('🤖 Cantidad de flujos:', flows.length);
+      setBotFlows(Array.isArray(flows) ? flows : []);
+    } catch (error: any) {
+      console.error('❌ Error al cargar flujos de bot:', error);
+      console.error('❌ Error response:', error.response?.data);
+      setBotFlows([]);
+    }
+  };
+
   const handleCreate = async () => {
     try {
-      await api.post('/whatsapp-numbers', formData);
+      // Preparar payload para crear el número
+      let payload: any = { ...formData };
+
+      // Si es Twilio, incluir las credenciales en el payload inicial
+      if (formData.provider === 'twilio') {
+        payload = {
+          ...payload,
+          twilioAccountSid: twilioConfig.accountSid,
+          twilioAuthToken: twilioConfig.authToken,
+          twilioPhoneNumber: twilioConfig.phoneNumber,
+        };
+      }
+
+      // Crear el número
+      await api.post('/whatsapp-numbers', payload);
+      
+      alert(formData.provider === 'twilio' ? 'Número Twilio creado exitosamente' : 'Número creado exitosamente');
+
       setOpenAddDialog(false);
       setFormData({
         phoneNumber: '',
         displayName: '',
         provider: 'wppconnect',
         campaignId: '',
+        botFlowId: '',
+      });
+      setTwilioConfig({
+        accountSid: '',
+        authToken: '',
+        phoneNumber: '',
       });
       loadNumbers();
     } catch (error: any) {
@@ -254,6 +314,44 @@ const WhatsAppManagement: React.FC = () => {
       loadNumbers();
     } catch (error: any) {
       alert(error.response?.data?.message || 'Error al eliminar');
+    }
+  };
+
+  const handleOpenEditDialog = (number: WhatsAppNumber) => {
+    setEditingNumber(number);
+    setFormData({
+      phoneNumber: number.phoneNumber,
+      displayName: number.displayName,
+      provider: number.provider,
+      campaignId: number.campaignId || '',
+      botFlowId: number.botFlowId || '',
+    });
+    setOpenEditDialog(true);
+  };
+
+  const handleEdit = async () => {
+    if (!editingNumber) return;
+
+    try {
+      await api.patch(`/whatsapp-numbers/${editingNumber.id}`, {
+        displayName: formData.displayName,
+        campaignId: formData.campaignId || null,
+        botFlowId: formData.botFlowId || null,
+      });
+      
+      alert('Número actualizado exitosamente');
+      setOpenEditDialog(false);
+      setEditingNumber(null);
+      setFormData({
+        phoneNumber: '',
+        displayName: '',
+        provider: 'wppconnect',
+        campaignId: '',
+        botFlowId: '',
+      });
+      loadNumbers();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Error al actualizar número');
     }
   };
 
@@ -355,9 +453,16 @@ const WhatsAppManagement: React.FC = () => {
                       <TableCell>{number.phoneNumber}</TableCell>
                       <TableCell>
                         <Chip
-                          label={number.provider === 'wppconnect' ? 'WPPConnect' : 'Meta Cloud'}
+                          label={
+                            number.provider === 'wppconnect'
+                              ? 'WPPConnect'
+                              : number.provider === 'meta'
+                              ? 'Meta Cloud'
+                              : 'Twilio'
+                          }
                           size="small"
                           variant="outlined"
+                          color={number.provider === 'twilio' ? 'secondary' : 'default'}
                         />
                       </TableCell>
                       <TableCell>{getStatusChip(number.status)}</TableCell>
@@ -400,7 +505,7 @@ const WhatsAppManagement: React.FC = () => {
                               </Tooltip>
                             )}
                           </>
-                        ) : (
+                        ) : number.provider === 'meta' ? (
                           <Tooltip title="Configurar Meta API">
                             <IconButton
                               color="primary"
@@ -409,7 +514,18 @@ const WhatsAppManagement: React.FC = () => {
                               <SettingsIcon />
                             </IconButton>
                           </Tooltip>
-                        )}
+                        ) : number.provider === 'twilio' ? (
+                          <Tooltip title="Twilio configurado automáticamente">
+                            <IconButton color="success" disabled>
+                              <SettingsIcon />
+                            </IconButton>
+                          </Tooltip>
+                        ) : null}
+                        <Tooltip title="Editar">
+                          <IconButton color="primary" onClick={() => handleOpenEditDialog(number)}>
+                            <SettingsIcon />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="Eliminar">
                           <IconButton color="error" onClick={() => handleDelete(number.id)}>
                             <DeleteIcon />
@@ -451,12 +567,53 @@ const WhatsAppManagement: React.FC = () => {
               fullWidth
               value={formData.provider}
               onChange={(e) =>
-                setFormData({ ...formData, provider: e.target.value as 'wppconnect' | 'meta' })
+                setFormData({ ...formData, provider: e.target.value as 'wppconnect' | 'meta' | 'twilio' })
               }
             >
               <MenuItem value="wppconnect">WPPConnect (QR Local)</MenuItem>
               <MenuItem value="meta">Meta Cloud API</MenuItem>
+              <MenuItem value="twilio">Twilio WhatsApp</MenuItem>
             </TextField>
+
+            {/* Campos condicionales para Twilio */}
+            {formData.provider === 'twilio' && (
+              <>
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  <Typography variant="body2">
+                    Necesitarás credenciales de Twilio. Consíguelas en{' '}
+                    <a href="https://console.twilio.com" target="_blank" rel="noopener">
+                      console.twilio.com
+                    </a>
+                  </Typography>
+                </Alert>
+                <TextField
+                  label="Account SID"
+                  fullWidth
+                  value={twilioConfig.accountSid}
+                  onChange={(e) => setTwilioConfig({ ...twilioConfig, accountSid: e.target.value })}
+                  placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  helperText="Encuéntralo en el Dashboard de Twilio"
+                />
+                <TextField
+                  label="Auth Token"
+                  fullWidth
+                  type="password"
+                  value={twilioConfig.authToken}
+                  onChange={(e) => setTwilioConfig({ ...twilioConfig, authToken: e.target.value })}
+                  placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  helperText="Encuéntralo en el Dashboard de Twilio"
+                />
+                <TextField
+                  label="Twilio Phone Number"
+                  fullWidth
+                  value={twilioConfig.phoneNumber}
+                  onChange={(e) => setTwilioConfig({ ...twilioConfig, phoneNumber: e.target.value })}
+                  placeholder="whatsapp:+14155238886"
+                  helperText="Incluye el prefijo whatsapp: antes del número"
+                />
+              </>
+            )}
+
             <TextField
               select
               label="Campaña (Opcional)"
@@ -468,6 +625,22 @@ const WhatsAppManagement: React.FC = () => {
               {campaigns.map((campaign) => (
                 <MenuItem key={campaign.id} value={campaign.id}>
                   {campaign.name}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              select
+              label="Flujo de Bot (Opcional)"
+              fullWidth
+              value={formData.botFlowId}
+              onChange={(e) => setFormData({ ...formData, botFlowId: e.target.value })}
+              helperText="Selecciona el flujo de conversación que usará este número"
+            >
+              <MenuItem value="">Sin asignar</MenuItem>
+              {botFlows.map((flow) => (
+                <MenuItem key={flow.id} value={flow.id}>
+                  {flow.name} {flow.description && `- ${flow.description}`}
                 </MenuItem>
               ))}
             </TextField>
@@ -578,6 +751,74 @@ const WhatsAppManagement: React.FC = () => {
           <Button onClick={() => setOpenMetaDialog(false)}>Cancelar</Button>
           <Button variant="contained" onClick={handleConfigureMeta}>
             Guardar y Verificar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Editar Número */}
+      <Dialog open={openEditDialog} onClose={() => setOpenEditDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Editar Número WhatsApp</DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Nombre Descriptivo"
+              fullWidth
+              value={formData.displayName}
+              onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
+            />
+            
+            <TextField
+              label="Número de Teléfono"
+              fullWidth
+              value={formData.phoneNumber}
+              disabled
+              helperText="El número de teléfono no se puede modificar"
+            />
+
+            <TextField
+              label="Proveedor"
+              fullWidth
+              value={formData.provider === 'wppconnect' ? 'WPPConnect' : formData.provider === 'meta' ? 'Meta Cloud' : 'Twilio'}
+              disabled
+              helperText="El proveedor no se puede modificar"
+            />
+
+            <TextField
+              select
+              label="Campaña (Opcional)"
+              fullWidth
+              value={formData.campaignId}
+              onChange={(e) => setFormData({ ...formData, campaignId: e.target.value })}
+            >
+              <MenuItem value="">Sin asignar</MenuItem>
+              {campaigns.map((campaign) => (
+                <MenuItem key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              select
+              label="Flujo de Bot (Opcional)"
+              fullWidth
+              value={formData.botFlowId}
+              onChange={(e) => setFormData({ ...formData, botFlowId: e.target.value })}
+              helperText="Selecciona el flujo de conversación que usará este número"
+            >
+              <MenuItem value="">Sin asignar</MenuItem>
+              {botFlows.map((flow) => (
+                <MenuItem key={flow.id} value={flow.id}>
+                  {flow.name} {flow.description && `- ${flow.description}`}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenEditDialog(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleEdit}>
+            Guardar Cambios
           </Button>
         </DialogActions>
       </Dialog>

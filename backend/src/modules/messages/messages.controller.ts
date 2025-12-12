@@ -7,7 +7,10 @@ import {
   Patch,
   UseGuards,
   Query,
+  Res,
+  NotFoundException,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { MessagesService } from './messages.service';
 import { CreateMessageDto } from './dto/create-message.dto';
@@ -16,6 +19,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import * as path from 'path';
+import * as fs from 'fs';
 
 @ApiTags('messages')
 @Controller('messages')
@@ -112,5 +117,25 @@ export class MessagesController {
   @RequirePermissions({ module: 'messages', action: 'read' })
   getStats(@Param('chatId') chatId: string) {
     return this.messagesService.getStats(chatId);
+  }
+
+  @Get(':id/download-media')
+  @ApiOperation({ summary: 'Descargar archivo multimedia de un mensaje' })
+  @RequirePermissions({ module: 'messages', action: 'read' })
+  async downloadMedia(@Param('id') id: string, @Res() res: Response) {
+    const message = await this.messagesService.findOne(id);
+    
+    if (!message || !message.mediaUrl) {
+      throw new NotFoundException('Mensaje o archivo multimedia no encontrado');
+    }
+
+    const filePath = path.join(process.cwd(), message.mediaUrl.replace(/^\//, ''));
+    
+    if (!fs.existsSync(filePath)) {
+      throw new NotFoundException('Archivo no encontrado en el servidor');
+    }
+
+    const fileName = message.mediaFileName || path.basename(filePath);
+    res.download(filePath, fileName);
   }
 }

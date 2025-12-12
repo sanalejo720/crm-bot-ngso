@@ -51,7 +51,7 @@ export class PaymentEvidencesController {
     },
   })
   @UseInterceptors(FileInterceptor('file'))
-  @RequirePermissions({ module: 'evidences', action: 'create' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'create' })
   async uploadEvidence(
     @UploadedFile() file: Express.Multer.File,
     @Body() createDto: CreateEvidenceDto,
@@ -73,8 +73,16 @@ export class PaymentEvidencesController {
 
   @Get()
   @ApiOperation({ summary: 'Listar evidencias de pago' })
-  @RequirePermissions({ module: 'evidences', action: 'read' })
-  async findAll(@Query() query: QueryEvidencesDto) {
+  @RequirePermissions({ module: 'payment_evidences', action: 'read' })
+  async findAll(@Query() query: QueryEvidencesDto, @Request() req) {
+    // Si el usuario es agente (no supervisor ni admin), solo ver sus propias evidencias
+    const userRole = req.user.role?.name;
+    const isSupervisorOrAdmin = ['Supervisor', 'Super Admin', 'Administrador'].includes(userRole);
+    
+    if (!isSupervisorOrAdmin && !query.uploadedBy) {
+      query.uploadedBy = req.user.id; // Forzar filtro por el agente actual
+    }
+
     const evidences = await this.evidencesService.findAll(query);
 
     return {
@@ -86,7 +94,7 @@ export class PaymentEvidencesController {
 
   @Get('pending/count')
   @ApiOperation({ summary: 'Obtener cantidad de evidencias pendientes' })
-  @RequirePermissions({ module: 'evidences', action: 'read' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'read' })
   async getPendingCount() {
     const count = await this.evidencesService.getPendingCount();
 
@@ -99,7 +107,7 @@ export class PaymentEvidencesController {
 
   @Get('client/:clientId')
   @ApiOperation({ summary: 'Obtener evidencias de un cliente' })
-  @RequirePermissions({ module: 'evidences', action: 'read' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'read' })
   async getClientEvidences(@Param('clientId') clientId: string) {
     const evidences = await this.evidencesService.getEvidencesByClient(clientId);
 
@@ -112,7 +120,7 @@ export class PaymentEvidencesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener una evidencia por ID' })
-  @RequirePermissions({ module: 'evidences', action: 'read' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'read' })
   async findOne(@Param('id') id: string) {
     const evidence = await this.evidencesService.findOne(id);
 
@@ -125,7 +133,7 @@ export class PaymentEvidencesController {
 
   @Patch(':id/review')
   @ApiOperation({ summary: 'Revisar evidencia (aprobar/rechazar)' })
-  @RequirePermissions({ module: 'evidences', action: 'review' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'review' })
   async reviewEvidence(
     @Param('id') id: string,
     @Body() reviewDto: ReviewEvidenceDto,
@@ -143,7 +151,7 @@ export class PaymentEvidencesController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar evidencia de pago' })
-  @RequirePermissions({ module: 'evidences', action: 'delete' })
+  @RequirePermissions({ module: 'payment_evidences', action: 'delete' })
   async deleteEvidence(@Param('id') id: string) {
     await this.evidencesService.deleteEvidence(id);
 

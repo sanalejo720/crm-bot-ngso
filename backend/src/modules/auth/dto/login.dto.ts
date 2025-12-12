@@ -15,6 +15,16 @@ export class LoginDto {
   @IsOptional()
   @IsString()
   twoFactorCode?: string;
+
+  @ApiPropertyOptional({ description: 'IP Address del cliente' })
+  @IsOptional()
+  @IsString()
+  ipAddress?: string;
+
+  @ApiPropertyOptional({ description: 'User Agent del cliente' })
+  @IsOptional()
+  @IsString()
+  userAgent?: string;
 }
 
 export class LoginResponseDto {

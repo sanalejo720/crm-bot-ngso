@@ -88,6 +88,10 @@ export class PaymentEvidencesService {
       where.status = query.status;
     }
 
+    if (query.uploadedBy) {
+      where.uploadedBy = query.uploadedBy;
+    }
+
     if (query.startDate && query.endDate) {
       where.paymentDate = Between(new Date(query.startDate), new Date(query.endDate));
     }

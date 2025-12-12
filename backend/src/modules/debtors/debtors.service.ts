@@ -46,6 +46,17 @@ export class DebtorsService {
   async findByDocument(documentType: DocumentType, documentNumber: string): Promise<Debtor | null> {
     return await this.debtorRepository.findOne({
       where: { documentType, documentNumber },
+      relations: ['campaign'],
+    });
+  }
+
+  /**
+   * Buscar deudor solo por número de documento (sin importar el tipo)
+   */
+  async findByDocumentNumber(documentNumber: string): Promise<Debtor | null> {
+    return await this.debtorRepository.findOne({
+      where: { documentNumber },
+      relations: ['campaign'],
     });
   }
 

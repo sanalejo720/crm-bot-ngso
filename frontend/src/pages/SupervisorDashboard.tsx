@@ -21,6 +21,8 @@ import {
   IconButton,
   Tooltip,
   Avatar,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   People,
@@ -31,6 +33,7 @@ import {
 } from '@mui/icons-material';
 import AppHeader from '../components/layout/AppHeader';
 import apiService from '../services/api';
+import AgentMonitoring from '../components/workday/AgentMonitoring';
 
 interface DashboardStats {
   totalAgents: number;
@@ -65,6 +68,7 @@ interface RecentChat {
 
 export default function SupervisorDashboard() {
   const navigate = useNavigate();
+  const [tabValue, setTabValue] = useState(0);
   const [stats, setStats] = useState<DashboardStats>({
     totalAgents: 0,
     availableAgents: 0,
@@ -174,7 +178,6 @@ export default function SupervisorDashboard() {
     const diffDays = Math.floor(diffHours / 24);
     return `hace ${diffDays}d`;
   };
-
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', bgcolor: '#f5f5f5' }}>
       <AppHeader />
@@ -184,6 +187,17 @@ export default function SupervisorDashboard() {
           Dashboard de Supervisión
         </Typography>
         
+        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
+          <Tab label="Vista General" />
+          <Tab label="Monitoreo de Agentes" />
+        </Tabs>
+        
+        {isLoading && <LinearProgress sx={{ mb: 2 }} />}
+
+        {tabValue === 1 && <AgentMonitoring />}
+
+        {tabValue === 0 && (
+          <Box>
         {isLoading && <LinearProgress sx={{ mb: 2 }} />}
 
         <Box sx={{ 
@@ -430,6 +444,8 @@ export default function SupervisorDashboard() {
             </TableContainer>
           </Paper>
         </Box>
+        </Box>
+        )}
       </Box>
     </Box>
   );

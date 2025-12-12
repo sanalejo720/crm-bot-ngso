@@ -9,17 +9,30 @@ import { WhatsappNumber } from './entities/whatsapp-number.entity';
 import { MetaCloudService } from './providers/meta-cloud.service';
 import { MetaService } from './providers/meta.service';
 import { WppConnectService } from './providers/wppconnect.service';
+import { TwilioService } from './providers/twilio.service';
+import { TwilioSpamDetectorService } from './services/twilio-spam-detector.service';
+import { MessageAuditService } from './services/message-audit.service';
+import { Message } from '../messages/entities/message.entity';
+import { Chat } from '../chats/entities/chat.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WhatsappNumber])],
+  imports: [TypeOrmModule.forFeature([WhatsappNumber, Message, Chat])],
   controllers: [WhatsappController, WhatsappNumbersController, WebhookController],
   providers: [
     WhatsappService, 
     WhatsappNumbersService,
     MetaCloudService, 
     MetaService,
-    WppConnectService
+    WppConnectService,
+    TwilioService,
+    TwilioSpamDetectorService,
+    MessageAuditService,
   ],
-  exports: [WhatsappService, WhatsappNumbersService],
+  exports: [
+    WhatsappService, 
+    WhatsappNumbersService,
+    TwilioSpamDetectorService,
+    MessageAuditService,
+  ],
 })
 export class WhatsappModule {}

@@ -99,6 +99,7 @@ export class Chat {
     currentNodeId?: string;
     variables?: Record<string, any>;
     transferredToAgent?: boolean;
+    closureType?: 'paid' | 'promise';
   };
 
   // Relations
@@ -130,8 +131,43 @@ export class Chat {
   @Column({ nullable: true })
   clientId: string;
 
+  @Column({ nullable: true })
+  debtorId: string;
+
   @OneToMany(() => Message, (message) => message.chat)
   messages: Message[];
+
+  // ============ NUEVOS CAMPOS - SISTEMA DE ESTADOS ============
+
+  @Column({ name: 'sub_status', nullable: true })
+  subStatus?: string;
+
+  @Column({ name: 'is_bot_active', default: false })
+  isBotActive: boolean;
+
+  @Column({ name: 'last_agent_message_at', type: 'timestamp', nullable: true })
+  lastAgentMessageAt?: Date;
+
+  @Column({ name: 'last_client_message_at', type: 'timestamp', nullable: true })
+  lastClientMessageAt?: Date;
+
+  @Column({ name: 'first_response_time_seconds', nullable: true })
+  firstResponseTimeSeconds?: number;
+
+  @Column({ name: 'agent_warning_sent', default: false })
+  agentWarningSent: boolean;
+
+  @Column({ name: 'client_warning_sent', default: false })
+  clientWarningSent: boolean;
+
+  @Column({ name: 'auto_close_scheduled_at', type: 'timestamp', nullable: true })
+  autoCloseScheduledAt?: Date;
+
+  @Column({ name: 'transfer_count', default: 0 })
+  transferCount: number;
+
+  @Column({ name: 'bot_restart_count', default: 0 })
+  botRestartCount: number;
 
   @CreateDateColumn()
   createdAt: Date;

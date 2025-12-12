@@ -4,7 +4,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { WhatsappNumber } from './entities/whatsapp-number.entity';
+import { WhatsappNumber, WhatsappProvider } from './entities/whatsapp-number.entity';
 import { CreateWhatsappNumberDto } from './dto/create-whatsapp-number.dto';
 import { UpdateWhatsappNumberDto } from './dto/update-whatsapp-number.dto';
 import { WppConnectService } from './providers/wppconnect.service';
@@ -65,16 +65,29 @@ export class WhatsappNumbersService {
       throw new BadRequestException('Este número ya está registrado');
     }
 
+    // Si es Twilio y tiene credenciales, marcar como conectado automáticamente
+    const initialStatus = 
+      createDto.provider === WhatsappProvider.TWILIO && 
+      createDto.twilioAccountSid && 
+      createDto.twilioAuthToken && 
+      createDto.twilioPhoneNumber
+        ? ConnectionStatus.CONNECTED
+        : ConnectionStatus.DISCONNECTED;
+
     const whatsappNumber = this.whatsappNumberRepository.create({
       phoneNumber: createDto.phoneNumber,
       displayName: createDto.displayName,
       provider: createDto.provider,
-      status: ConnectionStatus.DISCONNECTED,
+      status: initialStatus,
       isActive: createDto.isActive ?? true,
       campaignId: createDto.campaignId,
+      botFlowId: createDto.botFlowId,
       accessToken: createDto.accessToken,
       phoneNumberId: createDto.phoneNumberId,
       sessionName: createDto.sessionName,
+      twilioAccountSid: createDto.twilioAccountSid,
+      twilioAuthToken: createDto.twilioAuthToken,
+      twilioPhoneNumber: createDto.twilioPhoneNumber,
     });
 
     const saved = await this.whatsappNumberRepository.save(whatsappNumber);
@@ -86,7 +99,7 @@ export class WhatsappNumbersService {
 
   async findAll(): Promise<WhatsappNumber[]> {
     return await this.whatsappNumberRepository.find({
-      relations: ['campaign'],
+      relations: ['campaign', 'botFlow'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -94,14 +107,14 @@ export class WhatsappNumbersService {
   async findAllActive(): Promise<WhatsappNumber[]> {
     return await this.whatsappNumberRepository.find({
       where: { isActive: true },
-      relations: ['campaign'],
+      relations: ['campaign', 'botFlow'],
     });
   }
 
   async findOne(id: string): Promise<WhatsappNumber> {
     const number = await this.whatsappNumberRepository.findOne({
       where: { id },
-      relations: ['campaign'],
+      relations: ['campaign', 'botFlow'],
     });
 
     if (!number) {

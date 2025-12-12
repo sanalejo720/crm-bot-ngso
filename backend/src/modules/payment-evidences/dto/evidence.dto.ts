@@ -64,4 +64,9 @@ export class QueryEvidencesDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @ApiPropertyOptional({ description: 'ID del agente que subió la evidencia' })
+  @IsOptional()
+  @IsUUID()
+  uploadedBy?: string;
 }

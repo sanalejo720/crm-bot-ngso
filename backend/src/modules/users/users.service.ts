@@ -1,10 +1,12 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, UserStatus, AgentState } from './entities/user.entity';
+import { UserCampaign } from './entities/user-campaign.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { WorkdayService } from '../workday/workday.service';
 
 @Injectable()
 export class UsersService {
@@ -13,6 +15,10 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(UserCampaign)
+    private userCampaignRepository: Repository<UserCampaign>,
+    @Inject(forwardRef(() => WorkdayService))
+    private workdayService: WorkdayService,
   ) {}
 
   /**
@@ -29,13 +35,30 @@ export class UsersService {
 
     const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
 
+    // Extraer campaignIds del DTO antes de crear el usuario
+    const { campaignIds, ...userDataWithoutCampaigns } = createUserDto;
+
     const user = this.userRepository.create({
-      ...createUserDto,
+      ...userDataWithoutCampaigns,
       password: hashedPassword,
     });
 
     const savedUser = await this.userRepository.save(user);
     this.logger.log(`Usuario creado: ${savedUser.email}`);
+
+    // Si hay campaignIds, asignar las campañas al usuario
+    if (campaignIds && campaignIds.length > 0) {
+      for (const campaignId of campaignIds) {
+        const userCampaign = this.userCampaignRepository.create({
+          userId: savedUser.id,
+          campaignId: campaignId,
+          isActive: true,
+          isPrimary: campaignId === campaignIds[0], // Primera es la principal
+        });
+        await this.userCampaignRepository.save(userCampaign);
+      }
+      this.logger.log(`Usuario ${savedUser.email} asignado a ${campaignIds.length} campaña(s)`);
+    }
 
     return savedUser;
   }
@@ -48,7 +71,7 @@ export class UsersService {
     roleId?: string;
     campaignId?: string;
     isAgent?: boolean;
-  }): Promise<User[]> {
+  }): Promise<any[]> {
     const query = this.userRepository.createQueryBuilder('user')
       .leftJoinAndSelect('user.role', 'role')
       .leftJoinAndSelect('role.permissions', 'permissions')
@@ -70,7 +93,27 @@ export class UsersService {
       query.andWhere('role.name = :roleName', { roleName: 'Agente' });
     }
 
-    return query.getMany();
+    const users = await query.getMany();
+
+    // Obtener conteo de campañas para cada usuario agente
+    const usersWithCampaigns = await Promise.all(
+      users.map(async (user) => {
+        if (user.isAgent || user.role?.name === 'Agente') {
+          const userCampaigns = await this.userCampaignRepository.find({
+            where: { userId: user.id, isActive: true },
+            relations: ['campaign'],
+          });
+          return {
+            ...user,
+            campaignCount: userCampaigns.length,
+            campaignNames: userCampaigns.map(uc => uc.campaign?.name).filter(Boolean),
+          };
+        }
+        return user;
+      })
+    );
+
+    return usersWithCampaigns;
   }
 
   /**
@@ -174,16 +217,59 @@ export class UsersService {
 
   /**
    * Obtener agentes disponibles para asignación
+   * Solo incluye agentes que:
+   * 1. Estén en la campaña (via user_campaigns o campaignId legacy)
+   * 2. Estén activos
+   * 3. Estén disponibles (no en pausa, no ocupados)
+   * 4. Tengan capacidad para más chats
+   * 5. Tengan jornada laboral activa (trabajando)
    */
   async getAvailableAgents(campaignId: string): Promise<User[]> {
-    return this.userRepository
+    // Primero, obtener IDs de agentes asignados a esta campaña via user_campaigns
+    const campaignAssignments = await this.userCampaignRepository.find({
+      where: { campaignId, isActive: true },
+      select: ['userId'],
+    });
+    const assignedUserIds = campaignAssignments.map(a => a.userId);
+
+    // Construir query para agentes
+    const queryBuilder = this.userRepository
       .createQueryBuilder('user')
       .leftJoinAndSelect('user.role', 'role')
-      .where('user.campaignId = :campaignId', { campaignId })
-      .andWhere('user.status = :status', { status: UserStatus.ACTIVE })
+      .where('user.status = :status', { status: UserStatus.ACTIVE })
       .andWhere('user.agentState = :agentState', { agentState: AgentState.AVAILABLE })
-      .andWhere('user.currentChatsCount < user.maxConcurrentChats')
+      .andWhere('user.currentChatsCount < user.maxConcurrentChats');
+
+    // Filtrar por campaña: usar user_campaigns si hay asignaciones, sino usar campaignId legacy
+    if (assignedUserIds.length > 0) {
+      queryBuilder.andWhere('user.id IN (:...userIds)', { userIds: assignedUserIds });
+    } else {
+      // Fallback a campaignId en tabla users (legacy)
+      queryBuilder.andWhere('user.campaignId = :campaignId', { campaignId });
+    }
+
+    const candidateAgents = await queryBuilder
       .orderBy('user.currentChatsCount', 'ASC')
       .getMany();
+
+    // Filtrar agentes que tengan jornada laboral activa
+    const availableAgents = [];
+    for (const agent of candidateAgents) {
+      try {
+        const workday = await this.workdayService.getCurrentWorkday(agent.id);
+        // Solo incluir si está trabajando (no en pausa ni desconectado)
+        if (workday && workday.currentStatus === 'working' && !workday.clockOutTime) {
+          availableAgents.push(agent);
+        } else {
+          this.logger.debug(`Agente ${agent.fullName} excluido: ${workday?.currentStatus || 'sin jornada'}`);
+        }
+      } catch (error) {
+        // Si no tiene jornada activa, no está disponible
+        this.logger.debug(`Agente ${agent.fullName} sin jornada laboral activa`);
+      }
+    }
+
+    this.logger.log(`Agentes disponibles para campaña ${campaignId}: ${availableAgents.length} de ${candidateAgents.length} candidatos`);
+    return availableAgents;
   }
 }

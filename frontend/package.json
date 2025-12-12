@@ -10,14 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.1.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
+    "@mui/x-data-grid": "^8.19.0",
     "@mui/x-date-pickers": "^8.19.0",
     "@reduxjs/toolkit": "^2.10.1",
     "@types/archiver": "^7.0.0",
     "@xyflow/react": "^12.9.3",
+    "antd": "^6.0.1",
     "archiver": "^7.0.1",
     "axios": "^1.13.2",
     "dagre": "^0.8.5",
@@ -27,6 +30,7 @@
     "react-dom": "^19.2.0",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.9.6",
+    "react-toastify": "^11.0.5",
     "reactflow": "^11.11.4",
     "recharts": "^3.4.1",
     "socket.io-client": "^4.8.1"

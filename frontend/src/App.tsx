@@ -2,6 +2,8 @@
 // Desarrollado por: Alejandro Sandoval - AS Software
 
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { ToastContainer } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
 import LoginPage from './pages/LoginPage'
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import RoleGuard from './components/auth/RoleGuard'
@@ -22,15 +24,32 @@ import SessionMonitoring from './pages/SessionMonitoring'
 import RoleManagement from './pages/RoleManagement'
 import FinancialDashboard from './pages/FinancialDashboard'
 import BotFlowsPage from './pages/BotFlowsPage'
+import BotFlowDetailPage from './pages/BotFlowDetailPage'
 import BotFlowEditorPage from './pages/BotFlowEditorPage'
 import PaymentEvidencesPage from './pages/PaymentEvidencesPage'
 import BackupsPage from './pages/BackupsPage'
 import UnidentifiedClientsPage from './pages/UnidentifiedClientsPage'
+import DebtorsPage from './pages/DebtorsPage'
+import EvidencesPage from './pages/EvidencesPage'
+import PaymentPromisesPage from './pages/PaymentPromisesPage'
+import AttendanceReportsPage from './pages/AttendanceReportsPage'
 
 function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
+    <>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
       
       <Route element={<ProtectedRoute />}>
         {/* Ruta principal - muestra vista según rol */}
@@ -56,15 +75,20 @@ function App() {
           <Route path="/users" element={<UsersManagement />} />
           <Route path="/roles" element={<RoleManagement />} />
           <Route path="/campaigns" element={<CampaignsPage />} />
+          <Route path="/debtors" element={<DebtorsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/financial" element={<FinancialDashboard />} />
           <Route path="/payment-evidences" element={<PaymentEvidencesPage />} />
+          <Route path="/evidences" element={<EvidencesPage />} />
+          <Route path="/payment-promises" element={<PaymentPromisesPage />} />
           <Route path="/whatsapp" element={<WhatsAppManagement />} />
           <Route path="/monitoring" element={<SessionMonitoring />} />
           <Route path="/bot-flows" element={<BotFlowsPage />} />
+          <Route path="/bot-flows/:id" element={<BotFlowDetailPage />} />
           <Route path="/bot-flows/:id/editor" element={<BotFlowEditorPage />} />
           <Route path="/backups" element={<BackupsPage />} />
           <Route path="/unidentified-clients" element={<UnidentifiedClientsPage />} />
+          <Route path="/attendance" element={<AttendanceReportsPage />} />
         </Route>
 
         {/* Rutas accesibles para todos los usuarios autenticados */}
@@ -74,7 +98,8 @@ function App() {
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   )
 }
 

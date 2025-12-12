@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import { Box, Typography, Menu, MenuItem, ListItemIcon, ListItemText, Tabs, Tab } from '@mui/material';
 import {
   People,
   Chat,
@@ -14,11 +14,14 @@ import {
   CheckCircle,
   Visibility,
   Assignment,
+  Dashboard as DashboardIcon,
+  Groups,
 } from '@mui/icons-material';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
 import StatsCard from '../components/common/StatsCard';
 import ChatCard from '../components/common/ChatCard';
+import AgentMonitoring from '../components/workday/AgentMonitoring';
 import apiService from '../services/api';
 import { useAppSelector } from '../hooks/redux';
 
@@ -50,6 +53,7 @@ export default function ModernSupervisorDashboard() {
   const navigate = useNavigate();
   const [sidebarOpen] = useState(true);
   const [, setLoading] = useState(true);
+  const [tabValue, setTabValue] = useState(0);
   const [stats, setStats] = useState<DashboardStats>({
     totalAgents: 0,
     availableAgents: 0,
@@ -155,7 +159,7 @@ export default function ModernSupervisorDashboard() {
         
         <Box sx={{ p: 4 }}>
           {/* Header */}
-          <Box sx={{ mb: 4 }}>
+          <Box sx={{ mb: 3 }}>
             <Typography variant="h4" sx={{ fontWeight: 700, color: '#1e293b', mb: 1 }}>
               Dashboard de Supervisión
             </Typography>
@@ -164,6 +168,15 @@ export default function ModernSupervisorDashboard() {
             </Typography>
           </Box>
 
+          {/* Tabs */}
+          <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+            <Tab icon={<DashboardIcon />} label="Vista General" iconPosition="start" />
+            <Tab icon={<Groups />} label="Monitoreo de Agentes" iconPosition="start" />
+          </Tabs>
+
+          {/* Tab 0: Vista General */}
+          {tabValue === 0 && (
+          <>
           {/* Stats Cards Grid */}
           <Box
             sx={{
@@ -270,6 +283,13 @@ export default function ModernSupervisorDashboard() {
               ))}
             </Box>
           </Box>
+          </>
+          )}
+
+          {/* Tab 1: Monitoreo de Agentes */}
+          {tabValue === 1 && (
+            <AgentMonitoring />
+          )}
         </Box>
       </Box>
 

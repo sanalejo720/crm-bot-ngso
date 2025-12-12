@@ -27,6 +27,8 @@ import {
 import apiService from '../services/api';
 import { formatCurrency } from '../utils/helpers';
 import { useAppSelector } from '../hooks/redux';
+import WorkdayControls from '../components/workday/WorkdayControls';
+import WorkdayStats from '../components/workday/WorkdayStats';
 
 interface AgentStats {
   activeChats: number;
@@ -131,6 +133,16 @@ export default function AgentDashboard() {
         <Typography variant="body2" color="text.secondary">
           Bienvenido, {user?.firstName || 'Agente'}
         </Typography>
+      </Box>
+
+      {/* Sección de Jornada Laboral */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 2fr' }, gap: 3, mb: 3 }}>
+        <Box>
+          <WorkdayControls />
+        </Box>
+        <Box>
+          <WorkdayStats />
+        </Box>
       </Box>
 
       {/* Tarjetas de estadísticas */}

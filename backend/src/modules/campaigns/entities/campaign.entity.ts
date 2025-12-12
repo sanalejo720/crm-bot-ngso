@@ -10,6 +10,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 import { WhatsappNumber } from '../../whatsapp/entities/whatsapp-number.entity';
 import { Chat } from '../../chats/entities/chat.entity';
+import { Debtor } from '../../debtors/entities/debtor.entity';
 
 export enum CampaignStatus {
   DRAFT = 'draft',
@@ -71,6 +72,9 @@ export class Campaign {
 
   @OneToMany(() => Chat, (chat) => chat.campaign)
   chats: Chat[];
+
+  @OneToMany(() => Debtor, (debtor) => debtor.campaign)
+  debtors: Debtor[];
 
   @CreateDateColumn()
   createdAt: Date;

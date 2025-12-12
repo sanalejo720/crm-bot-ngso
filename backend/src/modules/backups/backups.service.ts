@@ -2,7 +2,7 @@
 // Servicio para creación y gestión de backups cifrados
 // Desarrollado por: Alejandro Sandoval - AS Software
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -10,6 +10,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Backup, BackupStatus, BackupType } from './entities/backup.entity';
 import { CreateBackupDto } from './dto/backup.dto';
 import { EmailService } from '../../common/services/email.service';
+import { BackupEmailRecipientsService } from './backup-email-recipients.service';
 import { User } from '../users/entities/user.entity';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,6 +34,8 @@ export class BackupsService {
     private userRepo: Repository<User>,
     private configService: ConfigService,
     private emailService: EmailService,
+    @Inject(forwardRef(() => BackupEmailRecipientsService))
+    private recipientsService: BackupEmailRecipientsService,
   ) {
     // Crear directorio de backups si no existe
     this.backupsPath = path.join(process.cwd(), 'backups');
@@ -120,7 +123,7 @@ export class BackupsService {
 
       await this.backupRepo.save(backup);
       
-      // 7. ENVIAR EMAIL CON CONTRASEÑA A GERENCIA
+      // 7. ENVIAR EMAIL CON CONTRASEÑA A DESTINATARIOS CONFIGURADOS
       try {
         // Obtener nombre del usuario que creó el backup
         let createdByName = 'Sistema Automático';
@@ -131,15 +134,23 @@ export class BackupsService {
           }
         }
 
-        // Enviar email con la contraseña maestra (no bloquear el proceso si falla)
-        await this.emailService.sendBackupPasswordEmail(
-          backup.id,
-          masterPassword,
-          createdByName,
-          backup.fileName,
-        );
+        // Obtener lista de emails activos
+        const recipients = await this.recipientsService.getActiveEmails();
         
-        this.logger.log(`📧 Email con contraseña maestra enviado a gerencia para backup ${backupId}`);
+        if (recipients.length === 0) {
+          this.logger.warn(`⚠️ No hay destinatarios configurados para el backup ${backupId}`);
+        } else {
+          // Enviar email con la contraseña maestra a todos los destinatarios
+          await this.emailService.sendBackupPasswordEmail(
+            backup.id,
+            masterPassword,
+            createdByName,
+            backup.fileName,
+            recipients, // Ahora soporta múltiples destinatarios
+          );
+          
+          this.logger.log(`📧 Email con contraseña maestra enviado a ${recipients.length} destinatario(s) para backup ${backupId}`);
+        }
       } catch (emailError) {
         this.logger.error(`❌ Error enviando email para backup ${backupId}:`, emailError.message);
         // No fallar el backup si el email falla - el backup sigue siendo válido

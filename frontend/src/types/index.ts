@@ -97,16 +97,35 @@ export interface Chat {
   id: string;
   externalId: string;
   platform: 'whatsapp' | 'meta';
+  contactName?: string;
+  contactPhone: string;
   status: ChatStatus;
   priority: number;
   campaign: Campaign;
-  client: Client;
+  client?: Client;
+  debtor?: Client; // Deudor asociado al chat
   assignedAgent?: User;
   lastMessage?: Message;
   unreadCount: number;
   startedAt: string;
   closedAt?: string;
   metadata?: Record<string, any>;
+  whatsappNumber?: WhatsappNumber;
+  botContext?: {
+    sessionId?: string;
+    flowId?: string;
+    currentNodeId?: string;
+    variables?: Record<string, any>;
+    transferredToAgent?: boolean;
+    closureType?: 'paid' | 'promise';
+  };
+}
+
+export interface WhatsappNumber {
+  id: string;
+  phoneNumber: string;
+  provider: 'wppconnect' | 'meta';
+  alias?: string;
 }
 
 export type ChatStatus = 'waiting' | 'active' | 'resolved' | 'closed';
@@ -131,6 +150,8 @@ export interface Message {
   status: MessageStatus;
   content: string;
   mediaUrl?: string;
+  mediaFileName?: string;
+  mediaMimeType?: string;
   metadata?: Record<string, any>;
   createdAt: string;
   sentAt?: string;

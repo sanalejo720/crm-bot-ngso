@@ -19,6 +19,8 @@ import {
   ListItemText,
   IconButton,
   Alert,
+  Snackbar,
+  CircularProgress,
 } from '@mui/material';
 import {
   AttachMoney,
@@ -34,6 +36,7 @@ import { useAppDispatch } from '../../hooks/redux';
 import { updateClientStatus, setPromisePayment } from '../../store/slices/clientsSlice';
 import { updateChatStatus } from '../../store/slices/chatsSlice';
 import type { Client, Chat } from '../../types/index';
+import ExportChatSection from './ExportChatSection';
 import {
   formatCurrency,
   formatDateOnly,
@@ -51,9 +54,16 @@ interface DebtorPanelProps {
 
 export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
   const dispatch = useAppDispatch();
+  
+  // Obtener datos de deuda desde campos directos
+  const debtAmount = client?.debtAmount || 0;
+  const daysOverdue = client?.daysOverdue || 0;
+  
   const [promiseDialog, setPromiseDialog] = useState(false);
   const [promiseDate, setPromiseDate] = useState('');
-  const [promiseAmount, setPromiseAmount] = useState(client?.debtAmount || 0);
+  const [promiseAmount, setPromiseAmount] = useState(debtAmount);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [isUpdating, setIsUpdating] = useState(false);
 
   // Si no hay cliente, mostrar mensaje
   if (!client) {
@@ -66,30 +76,102 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
     );
   }
 
-  const priority = getClientPriority(client);
+  // Usar los valores calculados para prioridad
+  const clientWithDebt = { ...client, debtAmount, daysOverdue };
+  const priority = getClientPriority(clientWithDebt);
   const priorityColor = getPriorityColor(priority);
 
   const handleUpdateStatus = async (status: string) => {
-    await dispatch(updateClientStatus({ clientId: client.id, collectionStatus: status as any }));
+    try {
+      setIsUpdating(true);
+      await dispatch(updateClientStatus({ clientId: client.id, collectionStatus: status as any })).unwrap();
+      
+      setSnackbar({
+        open: true,
+        message: `Estado actualizado a: ${getCollectionStatusLabel(status as any)}`,
+        severity: 'success',
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error al actualizar el estado',
+        severity: 'error',
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleSavePromise = async () => {
     if (promiseDate && promiseAmount > 0) {
-      await dispatch(setPromisePayment({
-        clientId: client.id,
-        promiseDate,
-        promiseAmount,
-      }));
-      setPromiseDialog(false);
+      try {
+        setIsUpdating(true);
+        await dispatch(setPromisePayment({
+          clientId: client.id,
+          promiseDate,
+          promiseAmount,
+        })).unwrap();
+        
+        setPromiseDialog(false);
+        setSnackbar({
+          open: true,
+          message: 'Promesa de pago registrada exitosamente',
+          severity: 'success',
+        });
+      } catch (error: any) {
+        setSnackbar({
+          open: true,
+          message: error.message || 'Error al registrar la promesa',
+          severity: 'error',
+        });
+      } finally {
+        setIsUpdating(false);
+      }
     }
   };
 
   const handleResolveChat = async () => {
-    await dispatch(updateChatStatus({ chatId: chat.id, status: 'resolved' }));
+    try {
+      setIsUpdating(true);
+      await dispatch(updateChatStatus({ chatId: chat.id, status: 'resolved' })).unwrap();
+      setSnackbar({
+        open: true,
+        message: 'Chat marcado como resuelto',
+        severity: 'success',
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error al resolver el chat',
+        severity: 'error',
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
 
   const handleCloseChat = async () => {
-    await dispatch(updateChatStatus({ chatId: chat.id, status: 'closed' }));
+    try {
+      setIsUpdating(true);
+      await dispatch(updateChatStatus({ chatId: chat.id, status: 'closed' })).unwrap();
+      setSnackbar({
+        open: true,
+        message: 'Chat cerrado exitosamente',
+        severity: 'success',
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error al cerrar el chat',
+        severity: 'error',
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
   };
 
   return (
@@ -128,7 +210,7 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
           </Typography>
         </Box>
         <Typography variant="h4" color="error" fontWeight="bold">
-          {formatCurrency(client.debtAmount)}
+          {formatCurrency(debtAmount)}
         </Typography>
       </Paper>
 
@@ -141,7 +223,7 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
           </Typography>
         </Box>
         <Typography variant="h4" color="error" fontWeight="bold">
-          {client.daysOverdue} días
+          {daysOverdue} días
         </Typography>
       </Paper>
 
@@ -167,7 +249,8 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
             size="small"
             variant="outlined"
             onClick={() => handleUpdateStatus('contacted')}
-            disabled={client.collectionStatus === 'contacted'}
+            disabled={client.collectionStatus === 'contacted' || isUpdating}
+            startIcon={isUpdating ? <CircularProgress size={14} /> : null}
           >
             Contactado
           </Button>
@@ -176,6 +259,7 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
             variant="outlined"
             color="warning"
             onClick={() => setPromiseDialog(true)}
+            disabled={isUpdating}
           >
             Promesa
           </Button>
@@ -184,6 +268,8 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
             variant="outlined"
             color="success"
             onClick={() => handleUpdateStatus('paid')}
+            disabled={isUpdating}
+            startIcon={isUpdating ? <CircularProgress size={14} /> : null}
           >
             Pagado
           </Button>
@@ -192,6 +278,8 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
             variant="outlined"
             color="error"
             onClick={() => handleUpdateStatus('legal')}
+            disabled={isUpdating}
+            startIcon={isUpdating ? <CircularProgress size={14} /> : null}
           >
             Legal
           </Button>
@@ -242,6 +330,17 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
 
       <Divider sx={{ my: 2 }} />
 
+      {/* Exportar Chat - Solo visible si hay promesa o pago */}
+      {(client.collectionStatus === 'promise' || client.collectionStatus === 'paid') && (
+        <ExportChatSection 
+          chatId={chat.id} 
+          clientName={client.fullName}
+          collectionStatus={client.collectionStatus}
+        />
+      )}
+
+      <Divider sx={{ my: 2 }} />
+
       {/* Información de contacto */}
       <Typography variant="subtitle2" gutterBottom>
         Contacto
@@ -281,18 +380,20 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
           color="success"
           fullWidth
           onClick={handleResolveChat}
-          disabled={chat.status === 'resolved' || chat.status === 'closed'}
+          disabled={chat.status === 'resolved' || chat.status === 'closed' || isUpdating}
+          startIcon={isUpdating ? <CircularProgress size={16} /> : null}
         >
-          Marcar Resuelto
+          {isUpdating ? 'Procesando...' : 'Marcar Resuelto'}
         </Button>
         <Button
           variant="outlined"
           color="error"
           fullWidth
           onClick={handleCloseChat}
-          disabled={chat.status === 'closed'}
+          disabled={chat.status === 'closed' || isUpdating}
+          startIcon={isUpdating ? <CircularProgress size={16} /> : null}
         >
-          Cerrar Chat
+          {isUpdating ? 'Cerrando...' : 'Cerrar Chat'}
         </Button>
       </Box>
 
@@ -330,16 +431,36 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPromiseDialog(false)}>Cancelar</Button>
+          <Button onClick={() => setPromiseDialog(false)} disabled={isUpdating}>
+            Cancelar
+          </Button>
           <Button
             variant="contained"
             onClick={handleSavePromise}
-            disabled={!promiseDate || promiseAmount <= 0}
+            disabled={!promiseDate || promiseAmount <= 0 || isUpdating}
+            startIcon={isUpdating ? <CircularProgress size={16} /> : null}
           >
-            Guardar
+            {isUpdating ? 'Guardando...' : 'Guardar'}
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar para notificaciones */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={3000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={handleCloseSnackbar}
+          severity={snackbar.severity}
+          sx={{ width: '100%' }}
+          variant="filled"
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

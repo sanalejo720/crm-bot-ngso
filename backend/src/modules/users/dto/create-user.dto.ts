@@ -66,4 +66,10 @@ export class CreateUserDto {
   @IsArray()
   @IsString({ each: true })
   skills?: string[];
+
+  @ApiPropertyOptional({ example: ['uuid-campaign-1', 'uuid-campaign-2'], description: 'IDs de campañas a asignar al usuario' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  campaignIds?: string[];
 }

@@ -30,6 +30,10 @@ import { DebtorsModule } from './modules/debtors/debtors.module';
 import { PaymentEvidencesModule } from './modules/payment-evidences/payment-evidences.module';
 import { BackupsModule } from './modules/backups/backups.module';
 import { UnidentifiedClientsModule } from './modules/unidentified-clients/unidentified-clients.module';
+import { EvidencesModule } from './modules/evidences/evidences.module';
+import { WorkdayModule } from './modules/workday/workday.module';
+import { WorkersModule } from './modules/workers/workers.module';
+import { MetricsModule } from './modules/metrics/metrics.module';
 
 @Module({
   imports: [
@@ -54,6 +58,7 @@ import { UnidentifiedClientsModule } from './modules/unidentified-clients/uniden
         synchronize: configService.get('NODE_ENV') !== 'production', // Solo en desarrollo
         logging: configService.get('NODE_ENV') === 'development',
         ssl: configService.get('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
+        timezone: 'America/Bogota', // UTC-5 Colombia
       }),
     }),
 
@@ -102,6 +107,10 @@ import { UnidentifiedClientsModule } from './modules/unidentified-clients/uniden
     PaymentEvidencesModule,
     BackupsModule,
     UnidentifiedClientsModule,
+    EvidencesModule,
+    WorkdayModule,
+    WorkersModule,
+    MetricsModule,
   ],
   providers: [
     {

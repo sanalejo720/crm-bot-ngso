@@ -36,14 +36,19 @@ export class EmailService {
     masterPassword: string,
     createdBy: string,
     backupName: string,
+    recipients?: string[], // Ahora soporta múltiples destinatarios
   ): Promise<void> {
     try {
-      const recipient = this.configService.get<string>('BACKUP_EMAIL_RECIPIENT');
+      // Si no se pasan destinatarios, usar el de la variable de entorno
+      const toAddresses = recipients && recipients.length > 0 
+        ? recipients.join(', ')
+        : this.configService.get<string>('BACKUP_EMAIL_RECIPIENT');
+      
       const from = this.configService.get<string>('SMTP_FROM');
 
       const mailOptions = {
         from,
-        to: recipient,
+        to: toAddresses,
         subject: `🔒 Contraseña de Backup del Sistema - ${backupName}`,
         html: `
           <!DOCTYPE html>
@@ -208,9 +213,36 @@ Este es un correo automático del Sistema CRM NGS&O WhatsApp
       };
 
       const info = await this.transporter.sendMail(mailOptions);
-      this.logger.log(`✅ Email de contraseña enviado exitosamente a ${recipient} - MessageID: ${info.messageId}`);
+      this.logger.log(`✅ Email de contraseña enviado exitosamente a ${toAddresses} - MessageID: ${info.messageId}`);
     } catch (error) {
       this.logger.error(`❌ Error al enviar email de contraseña:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Método genérico para enviar correos electrónicos
+   */
+  async send(options: {
+    to: string;
+    subject: string;
+    html: string;
+    from?: string;
+  }): Promise<void> {
+    try {
+      const from = options.from || this.configService.get<string>('SMTP_FROM');
+      
+      const mailOptions = {
+        from,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+      this.logger.log(`✅ Email enviado exitosamente a ${options.to} - MessageID: ${info.messageId}`);
+    } catch (error) {
+      this.logger.error(`❌ Error al enviar email a ${options.to}:`, error.message);
       throw error;
     }
   }

@@ -5,6 +5,8 @@ import { MessagesController } from './messages.controller';
 import { Message } from './entities/message.entity';
 import { ChatsModule } from '../chats/chats.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { ClientsModule } from '../clients/clients.module';
+import { DebtorsModule } from '../debtors/debtors.module';
 import { WhatsappNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { Client } from '../clients/entities/client.entity';
 
@@ -13,6 +15,8 @@ import { Client } from '../clients/entities/client.entity';
     TypeOrmModule.forFeature([Message, WhatsappNumber, Client]),
     ChatsModule,
     WhatsappModule,
+    ClientsModule,
+    DebtorsModule,
   ],
   controllers: [MessagesController],
   providers: [MessagesService],

@@ -1,6 +1,7 @@
-import { IsString, IsOptional, IsEmail, IsEnum, IsArray, IsPhoneNumber } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsEnum, IsArray, IsPhoneNumber, IsNumber } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { LeadStatus } from '../entities/client.entity';
+import { CollectionStatus } from '../enums/collection-status.enum';
 
 export class CreateClientDto {
   @ApiProperty({ example: '+593987654321' })
@@ -56,4 +57,29 @@ export class CreateClientDto {
   @IsOptional()
   @IsString()
   assignedTo?: string;
+
+  // Campos de cobranza
+  @ApiPropertyOptional({ example: 1000000 })
+  @IsOptional()
+  @IsNumber()
+  debtAmount?: number;
+
+  @ApiPropertyOptional({ example: 15 })
+  @IsOptional()
+  @IsNumber()
+  daysOverdue?: number;
+
+  @ApiPropertyOptional({ example: '123456789' })
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @ApiPropertyOptional({ example: 'pending', enum: CollectionStatus })
+  @IsOptional()
+  @IsEnum(CollectionStatus)
+  collectionStatus?: CollectionStatus;
+
+  @ApiPropertyOptional({ example: { key: 'value' } })
+  @IsOptional()
+  customFields?: Record<string, any>;
 }

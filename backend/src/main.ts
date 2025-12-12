@@ -27,6 +27,10 @@ async function bootstrap() {
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:5173',
       'http://localhost:5174', // Puerto alternativo de Vite
+      'http://172.203.16.202',
+      'https://172.203.16.202',
+      'http://ngso-chat.assoftware.xyz',
+      'https://ngso-chat.assoftware.xyz',
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

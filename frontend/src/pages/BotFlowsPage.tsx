@@ -32,9 +32,12 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { botFlowsService } from '../services/botFlowsService';
 import type { BotFlow, CreateBotFlowDto } from '../services/botFlowsService';
+import ModernSidebar from '../components/layout/ModernSidebar';
+import AppHeader from '../components/layout/AppHeader';
 
 export default function BotFlowsPage() {
   const navigate = useNavigate();
+  const [sidebarOpen] = useState(true);
   const [flows, setFlows] = useState<BotFlow[]>([]);
   const [loading, setLoading] = useState(true);
   const [openDialog, setOpenDialog] = useState(false);
@@ -138,14 +141,24 @@ export default function BotFlowsPage() {
 
   if (loading) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+        <ModernSidebar open={sidebarOpen} />
+        <Box sx={{ flexGrow: 1 }}>
+          <AppHeader />
+          <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+            <CircularProgress />
+          </Box>
+        </Box>
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      <ModernSidebar open={sidebarOpen} />
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <AppHeader />
+        <Box sx={{ p: 3, flexGrow: 1, overflow: 'auto' }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">🤖 Flujos de Bot</Typography>
         <Button
@@ -303,6 +316,8 @@ export default function BotFlowsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+        </Box>
+      </Box>
     </Box>
   );
 }

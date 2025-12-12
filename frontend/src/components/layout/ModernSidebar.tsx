@@ -38,6 +38,9 @@ import {
   Receipt,
   Backup,
   PersonSearch,
+  Lock,
+  Event,
+  EventNote,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../hooks/redux';
@@ -110,6 +113,20 @@ const menuItems: MenuItem[] = [
     path: '/payment-evidences',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
+  {
+    id: 'evidences-pdf',
+    label: 'PDFs de Cierre',
+    icon: <Lock />,
+    path: '/evidences',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'payment-promises',
+    label: 'Promesas de Pago',
+    icon: <Event />,
+    path: '/payment-promises',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
     {
       id: 'unidentified-clients',
       label: 'Clientes No Identificados',
@@ -134,6 +151,13 @@ const menuItems: MenuItem[] = [
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
   {
+    id: 'debtors',
+    label: 'Base de Deudores',
+    icon: <People />,
+    path: '/debtors',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
     id: 'bot-flows',
     label: 'Flujos de Bot',
     icon: <SmartToy />,
@@ -154,6 +178,13 @@ const menuItems: MenuItem[] = [
     label: 'Monitoreo Sesiones',
     icon: <MonitorHeart />,
     path: '/monitoring',
+    roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'attendance',
+    label: 'Control Asistencia',
+    icon: <EventNote />,
+    path: '/attendance',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
   },
   {

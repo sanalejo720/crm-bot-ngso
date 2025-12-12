@@ -25,6 +25,13 @@ import {
   MenuItem,
   LinearProgress,
   Avatar,
+  FormControl,
+  InputLabel,
+  Select,
+  OutlinedInput,
+  Checkbox,
+  ListItemText,
+  FormHelperText,
 } from '@mui/material';
 import {
   Edit,
@@ -51,6 +58,8 @@ interface User {
   currentChatsCount?: number;
   maxConcurrentChats?: number;
   agentState?: string;
+  campaignCount?: number;
+  campaignNames?: string[];
 }
 
 interface Role {
@@ -59,10 +68,18 @@ interface Role {
   description: string;
 }
 
+interface Campaign {
+  id: string;
+  name: string;
+  description?: string;
+  status: string;
+}
+
 export default function UsersManagement() {
   const [sidebarOpen] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -76,6 +93,7 @@ export default function UsersManagement() {
     roleId: '',
     isAgent: false,
     maxConcurrentChats: 5,
+    campaignIds: [] as string[],
   });
 
   useEffect(() => {
@@ -85,13 +103,15 @@ export default function UsersManagement() {
   const loadData = async () => {
     try {
       setIsLoading(true);
-      const [usersRes, rolesRes] = await Promise.all([
+      const [usersRes, rolesRes, campaignsRes] = await Promise.all([
         apiService.get('/users'),
         apiService.get('/roles'),
+        apiService.get('/campaigns'),
       ]);
       
       setUsers(usersRes.data.data || []);
       setRoles(rolesRes.data.data || []);
+      setCampaigns(campaignsRes.data.data || []);
     } catch (error) {
       console.error('Error cargando datos:', error);
     } finally {
@@ -99,7 +119,7 @@ export default function UsersManagement() {
     }
   };
 
-  const handleOpenDialog = (user?: User) => {
+  const handleOpenDialog = async (user?: User) => {
     if (user) {
       setEditingUser(user);
       // Separar fullName en firstName y lastName (el backend lo devuelve así)
@@ -108,6 +128,28 @@ export default function UsersManagement() {
         : ((user as any).fullName || '').split(' ');
       const lastName = lastNameParts.join(' ');
       
+      // Determinar si es agente basándose en el rol o en isAgent
+      const roleName = user.role?.name?.toLowerCase() || '';
+      const isUserAgent = user.isAgent || roleName === 'agente' || roleName === 'supervisor';
+      
+      console.log('Usuario a editar:', user);
+      console.log('Es agente:', isUserAgent, 'rol:', roleName);
+      
+      // Cargar las campañas del usuario
+      let userCampaignIds: string[] = [];
+      try {
+        const campaignsRes = await apiService.get(`/users/${user.id}/campaigns`);
+        console.log('Respuesta campañas del usuario:', campaignsRes.data);
+        // La respuesta puede ser { success, data: [...] } o directamente un array
+        const campaignsData = campaignsRes.data?.data || campaignsRes.data || [];
+        if (Array.isArray(campaignsData)) {
+          userCampaignIds = campaignsData.map((c: any) => c.campaignId || c.id);
+        }
+        console.log('IDs de campañas cargadas:', userCampaignIds);
+      } catch (error) {
+        console.error('Error cargando campañas del usuario:', error);
+      }
+      
       setFormData({
         firstName: firstName,
         lastName: lastName,
@@ -115,8 +157,9 @@ export default function UsersManagement() {
         password: '',
         phone: user.phone || '',
         roleId: user.role?.id || '',
-        isAgent: user.isAgent,
+        isAgent: isUserAgent,
         maxConcurrentChats: user.maxConcurrentChats || 5,
+        campaignIds: userCampaignIds,
       });
     } else {
       setEditingUser(null);
@@ -129,6 +172,7 @@ export default function UsersManagement() {
         roleId: '',
         isAgent: false,
         maxConcurrentChats: 5,
+        campaignIds: [],
       });
     }
     setDialogOpen(true);
@@ -152,16 +196,34 @@ export default function UsersManagement() {
       
       if (editingUser) {
         // Actualizar usuario - remover email y password para updates
-        const { email, password, ...updateData } = backendData;
+        const { email, password, campaignIds, ...updateData } = backendData;
+        console.log('Actualizando usuario:', editingUser.id, updateData);
         await apiService.patch(`/users/${editingUser.id}`, updateData);
+        
+        // Actualizar campañas por separado
+        if (campaignIds && campaignIds.length > 0) {
+          console.log('Actualizando campañas:', campaignIds);
+          try {
+            await apiService.put(`/users/${editingUser.id}/campaigns`, { 
+              campaignIds,
+              primaryCampaignId: campaignIds[0] 
+            });
+            console.log('Campañas actualizadas correctamente');
+          } catch (campError: any) {
+            console.error('Error actualizando campañas:', campError);
+            alert('Usuario actualizado pero hubo un error al asignar campañas: ' + (campError.response?.data?.message || campError.message));
+          }
+        }
       } else {
-        // Crear usuario - enviar todos los datos
+        // Crear usuario - enviar todos los datos incluyendo campaignIds
+        console.log('Creando usuario:', backendData);
         await apiService.post('/users', backendData);
       }
       
       handleCloseDialog();
       loadData();
     } catch (error: any) {
+      console.error('Error en handleSubmit:', error);
       alert(error.response?.data?.message || 'Error al guardar usuario');
     }
   };
@@ -245,6 +307,7 @@ export default function UsersManagement() {
                     <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Tipo</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Estado</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Estado Agente</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Campañas</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Chats</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 600, color: '#4a5568' }}>Acciones</TableCell>
                   </TableRow>
@@ -300,6 +363,20 @@ export default function UsersManagement() {
                       )}
                     </TableCell>
                     <TableCell align="center">
+                      {user.isAgent ? (
+                        <Tooltip title={user.campaignNames?.join(', ') || 'Sin campañas asignadas'}>
+                          <Chip
+                            label={`${user.campaignCount || 0} campaña${(user.campaignCount || 0) !== 1 ? 's' : ''}`}
+                            size="small"
+                            color={user.campaignCount && user.campaignCount > 0 ? 'info' : 'error'}
+                            variant={user.campaignCount && user.campaignCount > 0 ? 'filled' : 'outlined'}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">-</Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center">
                       {user.isAgent && user.currentChatsCount !== undefined ? (
                         <Box>
                           <Typography variant="body2" fontWeight={600}>
@@ -332,7 +409,7 @@ export default function UsersManagement() {
                 ))}
                 {users.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center">
+                    <TableCell colSpan={8} align="center">
                       <Typography variant="body2" color="text.secondary" py={3}>
                         No hay usuarios registrados
                       </Typography>
@@ -346,11 +423,19 @@ export default function UsersManagement() {
       </Box>
 
       {/* Dialog para crear/editar usuario */}
-      <Dialog open={dialogOpen} onClose={handleCloseDialog} maxWidth="sm" fullWidth>
+      <Dialog 
+        open={dialogOpen} 
+        onClose={handleCloseDialog} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{
+          sx: { maxHeight: '90vh' }
+        }}
+      >
         <DialogTitle>
           {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ overflowY: 'auto' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
@@ -429,6 +514,46 @@ export default function UsersManagement() {
                 inputProps={{ min: 1, max: 20 }}
               />
             )}
+
+            {/* Selector de campañas - solo para agentes */}
+            {formData.isAgent && (
+              <FormControl fullWidth required>
+                <InputLabel id="campaigns-label">Campañas</InputLabel>
+                <Select
+                  labelId="campaigns-label"
+                  multiple
+                  value={formData.campaignIds}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({
+                      ...formData,
+                      campaignIds: typeof value === 'string' ? value.split(',') : value,
+                    });
+                  }}
+                  input={<OutlinedInput label="Campañas" />}
+                  renderValue={(selected) => (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {selected.map((value) => {
+                        const campaign = campaigns.find(c => c.id === value);
+                        return (
+                          <Chip key={value} label={campaign?.name || value} size="small" />
+                        );
+                      })}
+                    </Box>
+                  )}
+                >
+                  {campaigns.filter(c => c.status === 'active').map((campaign) => (
+                    <MenuItem key={campaign.id} value={campaign.id}>
+                      <Checkbox checked={formData.campaignIds.indexOf(campaign.id) > -1} />
+                      <ListItemText primary={campaign.name} secondary={campaign.description} />
+                    </MenuItem>
+                  ))}
+                </Select>
+                <FormHelperText>
+                  Seleccione al menos una campaña para que el agente pueda recibir chats
+                </FormHelperText>
+              </FormControl>
+            )}
           </Box>
         </DialogContent>
         <DialogActions>
@@ -438,7 +563,14 @@ export default function UsersManagement() {
           <Button 
             onClick={handleSubmit} 
             variant="contained"
-            disabled={!formData.firstName || !formData.lastName || !formData.email || !formData.roleId || (!editingUser && !formData.password)}
+            disabled={
+              !formData.firstName || 
+              !formData.lastName || 
+              !formData.email || 
+              !formData.roleId || 
+              (!editingUser && !formData.password) ||
+              (formData.isAgent && formData.campaignIds.length === 0)
+            }
             sx={{
               background: 'linear-gradient(135deg, #ff6b35 0%, #e55a2b 100%)',
               '&:hover': {

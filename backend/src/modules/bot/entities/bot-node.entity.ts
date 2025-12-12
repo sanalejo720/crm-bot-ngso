@@ -39,6 +39,16 @@ export class BotNode {
     message?: string;
     mediaUrl?: string;
     
+    // BOTONES INTERACTIVOS (para MESSAGE e INPUT)
+    useButtons?: boolean; // Si es true, enviar como botones interactivos
+    buttons?: Array<{
+      id: string;
+      text: string;
+      value?: string; // Valor que se asigna a la variable
+    }>;
+    buttonTitle?: string; // Título del mensaje de botones
+    responseNodeId?: string; // Nodo a ejecutar tras recibir respuesta
+    
     // MENU
     options?: Array<{
       id: string;
@@ -65,8 +75,10 @@ export class BotNode {
       operator: 'equals' | 'contains' | 'greater' | 'less' | 'contains_ignore_case';
       value: any;
       nextNodeId: string;
+      targetNodeId?: string;
     }>;
     elseNodeId?: string; // Nodo a ejecutar si ninguna condición se cumple
+    defaultNodeId?: string; // Nodo por defecto cuando no hay coincidencias
     
     // API_CALL
     apiConfig?: {

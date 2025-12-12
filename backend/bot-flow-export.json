@@ -1,0 +1,194 @@
+{
+  "flow": {
+    "name": "Flujo Cobranza con Validación",
+    "description": "Flujo completo: tratamiento de datos, validación de documento y presentación de deuda",
+    "status": "active"
+  },
+  "nodes": [
+    {
+      "name": "Rechazo de Tratamiento",
+      "type": "message",
+      "config": {
+        "action": "transfer_to_agent",
+        "message": "Entendemos tu decisión. Sin embargo, sin tu autorización no podemos continuar.\n\nSi cambias de opinión o deseas hablar con un asesor, puedes escribirnos nuevamente.\n\n¡Que tengas un buen día! 👋"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Solicitar Documento",
+      "type": "message",
+      "config": {
+        "message": "Perfecto, gracias por aceptar. ✅\n\nPara verificar tu identidad y mostrarte la información de tu cuenta, necesito que me proporciones tu número de documento de identidad (Cédula).\n\nPor favor, escribe solo los números, sin puntos ni espacios.\n\nEjemplo: 1061749683",
+        "saveResponse": true,
+        "responseVariable": "documento"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Capturar Documento",
+      "type": "input",
+      "config": {
+        "nextNodeId": null,
+        "validation": {
+          "type": "number",
+          "maxLength": 12,
+          "minLength": 6
+        },
+        "variableName": "documento_validado"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Documento Inválido",
+      "type": "message",
+      "config": {
+        "action": "wait_response",
+        "message": "Lo siento, no encontré un registro con ese número de documento asociado a este número de teléfono. 🔍\n\nPor favor, verifica que el número de documento sea correcto o escribe \"ASESOR\" para ser transferido a un agente que pueda ayudarte. 👤",
+        "timeout": 300
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Validar Aceptación",
+      "type": "condition",
+      "config": {
+        "variable": "user_response",
+        "conditions": [
+          {
+            "value": "1",
+            "operator": "equals",
+            "nextNodeId": "fc63d498-4b1e-4869-bace-10aa51cc6ec3"
+          },
+          {
+            "value": "acepto",
+            "operator": "contains_ignore_case",
+            "nextNodeId": "fc63d498-4b1e-4869-bace-10aa51cc6ec3"
+          },
+          {
+            "value": "si",
+            "operator": "contains_ignore_case",
+            "nextNodeId": "fc63d498-4b1e-4869-bace-10aa51cc6ec3"
+          }
+        ],
+        "elseNodeId": "eedd423e-a8ae-4ed8-882d-57f45805e6d1"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Saludo y Tratamiento de Datos",
+      "type": "message",
+      "config": {
+        "message": "¡Hola! 👋 Somos del departamento de cobranzas de NGS&O Abogados.\n\nTe contactamos porque tienes una cuenta pendiente con nosotros.\n\nPara poder ayudarte, necesitamos que aceptes el tratamiento de tus datos personales según nuestra política de privacidad.\n\nPor favor responde:\n1️⃣ Acepto\n2️⃣ No acepto",
+        "variables": [
+          {
+            "name": "company",
+            "type": "string",
+            "field": "metadata.compania",
+            "source": "debtor",
+            "default": "nuestra empresa"
+          }
+        ]
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Presentación de Deuda",
+      "type": "message",
+      "config": {
+        "message": "¡Perfecto! Encontré tu información. 📋\n\n*DATOS DE TU CUENTA:*\n━━━━━━━━━━━━━━━━━━━\n👤 Nombre: {{debtor.fullName}}\n🆔 Documento: {{debtor.documentType}} {{debtor.documentNumber}}\n🏢 Producto: {{debtor.metadata.producto}}\n💰 Deuda Total: ${{debtor.debtAmount}}\n⏰ Días de Mora: {{debtor.daysOverdue}} días\n📅 Fecha de Vencimiento: {{debtor.metadata.fechaVencimiento}}\n━━━━━━━━━━━━━━━━━━━\n\nPara resolver esta situación, puedes:\n\n1️⃣ Pagar ahora\n2️⃣ Acordar fecha de pago\n3️⃣ Hablar con un asesor\n\nPor favor, responde con el número de tu opción.",
+        "variables": [
+          {
+            "name": "debtor.fullName",
+            "type": "string",
+            "field": "fullName",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.documentType",
+            "type": "string",
+            "field": "documentType",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.documentNumber",
+            "type": "string",
+            "field": "documentNumber",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.metadata.producto",
+            "type": "string",
+            "field": "metadata.producto",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.debtAmount",
+            "type": "number",
+            "field": "debtAmount",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.daysOverdue",
+            "type": "number",
+            "field": "daysOverdue",
+            "source": "debtor"
+          },
+          {
+            "name": "debtor.metadata.fechaVencimiento",
+            "type": "string",
+            "field": "metadata.fechaVencimiento",
+            "source": "debtor"
+          }
+        ],
+        "saveResponse": true,
+        "responseVariable": "opcion_pago"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Evaluar Opción",
+      "type": "condition",
+      "config": {
+        "variable": "opcion_pago",
+        "conditions": [
+          {
+            "value": "1",
+            "operator": "equals",
+            "nextNodeId": "cbd3c868-f1d7-4bd9-bffb-3acb8fc19ba5"
+          },
+          {
+            "value": "2",
+            "operator": "equals",
+            "nextNodeId": "cbd3c868-f1d7-4bd9-bffb-3acb8fc19ba5"
+          },
+          {
+            "value": "3",
+            "operator": "equals",
+            "nextNodeId": "cbd3c868-f1d7-4bd9-bffb-3acb8fc19ba5"
+          }
+        ],
+        "elseNodeId": "cbd3c868-f1d7-4bd9-bffb-3acb8fc19ba5"
+      },
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "name": "Transferir a Asesor",
+      "type": "transfer_agent",
+      "config": {
+        "reason": "requested_by_customer",
+        "message": "Perfecto, en un momento uno de nuestros asesores será asignado a tu caso para ayudarte con tu solicitud. ⏳\n\nPor favor espera un momento mientras te conectamos con un especialista.",
+        "priority": "high"
+      },
+      "positionX": 0,
+      "positionY": 0
+    }
+  ]
+}

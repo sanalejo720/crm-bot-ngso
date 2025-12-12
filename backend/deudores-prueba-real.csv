@@ -1,0 +1,2 @@
+nombre,tipo_doc,documento,telefono,correo,direccion,deuda,deuda_inicial,mora,ultimo_pago,promesa,estado,notas,producto,credito,vencimiento,compania,campana
+Alejandro Sandoval,CC,1061749683,573334309474,alejandro@example.com,Bogotá Colombia,1000000,1000000,15,2024-10-15,2024-12-01,active,Cliente de prueba real,Crédito Personal,SERF-001,2024-12-15,Serfinanza,CAMP-001

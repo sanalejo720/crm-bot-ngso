@@ -22,6 +22,7 @@ import { useAppSelector } from '../hooks/redux';
 import StatsCard from '../components/common/StatsCard';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
+import WorkdayControls from '../components/workday/WorkdayControls';
 
 interface AgentStats {
   activeChats: number;
@@ -112,6 +113,11 @@ export default function ModernAgentDashboard() {
             <Typography variant="body1" color="text.secondary">
               Aquí está tu resumen de actividad de hoy
             </Typography>
+          </Box>
+
+          {/* Control de Jornada Laboral - Prominente */}
+          <Box sx={{ mb: 4 }}>
+            <WorkdayControls />
           </Box>
 
           {/* Stats Grid */}

@@ -38,7 +38,10 @@ export class BotExecutorService {
     @Inject(forwardRef(() => MessagesService))
     private messagesService: MessagesService,
     private eventEmitter: EventEmitter2,
-  ) {}
+  ) {
+    this.logger.log('🚀 [BOT-EXECUTOR] BotExecutorService INICIADO Y REGISTRADO');
+    this.logger.log('🔔 [BOT-EXECUTOR] Listeners de eventos registrados: message.created, chat.closed');
+  }
 
   /**
    * Escuchar mensajes creados (después de guardarse en BD)
@@ -53,7 +56,18 @@ export class BotExecutorService {
         return;
       }
 
-      this.logger.log(`🤖 Mensaje entrante recibido de ${chat.contactPhone} - Chat: ${chat.id}`);
+      this.logger.log(`🤖 Mensaje entrante recibido de ${chat.contactPhone} - Chat: ${chat.id} - Estado: ${chat.status}`);
+
+      // Si el chat está cerrado, reactivarlo automáticamente para el bot
+      if (chat.status === 'closed') {
+        this.logger.log(`🔄 Chat ${chat.id} estaba cerrado, reactivando para bot...`);
+        await this.chatRepository.update(chat.id, {
+          status: () => "'bot'",
+          closedAt: null,
+        });
+        // Actualizar el objeto chat
+        chat.status = 'bot';
+      }
 
       // Verificar si tiene usuario asignado
       if (chat.assignedAgentId) {
@@ -87,8 +101,9 @@ export class BotExecutorService {
 
       // Transferir a agente si se requiere
       if (result.shouldTransferToAgent) {
+        this.logger.log(`📋 Cambiando estado del chat ${chat.id} a 'waiting' (en cola para asignación)`);
         await this.chatRepository.update(chat.id, {
-          status: () => "'pending'",
+          status: () => "'waiting'",
         });
       }
     } catch (error) {
@@ -100,8 +115,43 @@ export class BotExecutorService {
    * Escuchar cierre de chats para reiniciar bot
    */
   @OnEvent('chat.closed')
-  async handleChatClosed(payload: { chatId: string }) {
-    await this.resetBotSession(payload.chatId);
+  async handleChatClosed(chat: any) {
+    const chatId = chat.id || chat.chatId;
+    this.logger.log(`🔔 [BOT-EXECUTOR] Evento chat.closed recibido para chat ${chatId}`);
+    
+    try {
+      this.logger.log(`🔍 [BOT-EXECUTOR] Cargando chat ${chatId} con relaciones...`);
+      // Cargar chat completo con relaciones necesarias
+      const chatWithRelations = await this.chatRepository.findOne({
+        where: { id: chatId },
+        relations: ['campaign', 'whatsappNumber'],
+      });
+
+      if (!chatWithRelations) {
+        this.logger.error(`❌ [BOT-EXECUTOR] Chat ${chatId} no encontrado en handleChatClosed`);
+        return;
+      }
+
+      this.logger.log(`✅ [BOT-EXECUTOR] Chat cargado: ${chatWithRelations.contactPhone}, Número WA ID: ${chatWithRelations.whatsappNumberId}`);
+
+      // 1. Enviar mensaje de despedida al cliente
+      const farewellMessage = `✅ *Gracias por contactarnos*
+
+Su conversación ha sido cerrada. Si necesita asistencia adicional, puede escribirnos nuevamente y el sistema le atenderá automáticamente.
+
+*Equipo de Soporte NGSO*`;
+
+      this.logger.log(`📤 [BOT-EXECUTOR] Enviando mensaje de despedida al chat ${chatId}...`);
+      await this.sendBotMessage(chatWithRelations, farewellMessage);
+      this.logger.log(`💬 [BOT-EXECUTOR] Mensaje de despedida enviado al chat ${chatId}`);
+
+      // 2. Resetear sesión del bot para que esté listo cuando el cliente vuelva a escribir
+      this.logger.log(`🔄 [BOT-EXECUTOR] Reseteando sesión del bot para chat ${chatId}...`);
+      await this.resetBotSession(chatId);
+      this.logger.log(`✅ [BOT-EXECUTOR] Sesión del bot reseteada para chat ${chatId}`);
+    } catch (error) {
+      this.logger.error(`💥 [BOT-EXECUTOR] Error en handleChatClosed para chat ${chatId}: ${error.message}`, error.stack);
+    }
   }
 
   /**
@@ -318,8 +368,18 @@ export class BotExecutorService {
    * Nodo de transferencia a agente
    */
   private async handleTransferNode(session: BotSession) {
-    this.logger.log(`👤 Transfiriendo chat ${session.chatId} a agente`);
+    this.logger.log(`👤 Colocando chat ${session.chatId} en cola de espera para asignación`);
+    
+    // Actualizar el chat a estado BOT_WAITING_QUEUE
+    await this.chatRepository.update(session.chatId, {
+      status: () => "'bot'",
+      subStatus: 'bot_waiting_queue',
+    });
+
+    // Eliminar la sesión del bot
     this.botSessions.delete(session.chatId);
+
+    this.logger.log(`✅ Chat ${session.chatId} ahora está en cola de espera para asignación manual`);
 
     return {
       shouldRespond: true,

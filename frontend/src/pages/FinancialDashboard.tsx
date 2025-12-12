@@ -97,7 +97,13 @@ export default function FinancialDashboard() {
       }
 
       const response = await api.get(url);
-      setFinancialData(response.data.data);
+      console.log('📊 Dashboard response:', response.data);
+      
+      // El backend tiene TransformInterceptor: response.data.data.data
+      const data = response.data?.data?.data || response.data?.data || null;
+      console.log('📊 Dashboard data procesada:', data);
+      
+      setFinancialData(data);
     } catch (error) {
       console.error('Error al cargar datos financieros:', error);
     } finally {
@@ -176,12 +182,12 @@ export default function FinancialDashboard() {
                     <DatePicker
                       label="Fecha Inicio"
                       value={startDate}
-                      onChange={(newValue) => newValue && setStartDate(newValue)}
+                      onChange={(newValue) => newValue && setStartDate(dayjs(newValue))}
                     />
                     <DatePicker
                       label="Fecha Fin"
                       value={endDate}
-                      onChange={(newValue) => newValue && setEndDate(newValue)}
+                      onChange={(newValue) => newValue && setEndDate(dayjs(newValue))}
                     />
                     <Button variant="contained" onClick={handleApplyCustomRange}>
                       Aplicar

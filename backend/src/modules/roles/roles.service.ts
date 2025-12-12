@@ -211,6 +211,12 @@ export class RolesService {
       'audit',
       'settings',
       'templates',
+      'unidentified_clients',
+      'backups',
+      'payment_evidences',
+      'quick_replies',
+      'monitoring',
+      'debtors',
     ];
 
     const actions = ['create', 'read', 'update', 'delete'];
@@ -228,6 +234,8 @@ export class RolesService {
       { module: 'reports', action: 'export' },
       { module: 'whatsapp', action: 'send' },
       { module: 'templates', action: 'use' },
+      { module: 'debtors', action: 'upload' },
+      { module: 'debtors', action: 'import' },
     ];
 
     for (const module of modules) {

@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
 import { Client, LeadStatus } from './entities/client.entity';
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PazYSalvoService } from './paz-y-salvo.service';
 
 @Injectable()
 export class ClientsService {
@@ -14,6 +15,8 @@ export class ClientsService {
     @InjectRepository(Client)
     private clientRepository: Repository<Client>,
     private eventEmitter: EventEmitter2,
+    @Inject(forwardRef(() => PazYSalvoService))
+    private pazYSalvoService: PazYSalvoService,
   ) {}
 
   /**
@@ -134,6 +137,44 @@ export class ClientsService {
       const firstName = updateClientDto.firstName || client.fullName?.split(' ')[0] || '';
       const lastName = updateClientDto.lastName || client.fullName?.split(' ').slice(1).join(' ') || '';
       updateClientDto.fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Sin nombre';
+    }
+
+    // Si se cambia el estado a "paid", registrar fecha y monto de pago y crear paz y salvo
+    if (updateClientDto.collectionStatus === 'paid' && client.collectionStatus !== 'paid') {
+      if (!updateClientDto.lastPaymentDate) {
+        updateClientDto.lastPaymentDate = new Date();
+      }
+      if (!updateClientDto.lastPaymentAmount && client.debtAmount) {
+        updateClientDto.lastPaymentAmount = client.debtAmount;
+      }
+
+      // Crear paz y salvo automáticamente
+      try {
+        await this.pazYSalvoService.createPazYSalvo(
+          client.id,
+          updateClientDto.lastPaymentDate,
+          updateClientDto.lastPaymentAmount || client.debtAmount,
+          {
+            originalDebtAmount: client.debtAmount,
+          }
+        );
+        this.logger.log(`📜 Paz y Salvo creado automáticamente para ${client.fullName}`);
+      } catch (error: any) {
+        this.logger.error(`Error creando paz y salvo: ${error.message}`);
+      }
+    }
+
+    // Si se cambia el estado a "promise", registrar fecha y monto de promesa
+    if (updateClientDto.collectionStatus === 'promise' && client.collectionStatus !== 'promise') {
+      if (!updateClientDto.promisePaymentDate) {
+        // Por defecto, 15 días desde hoy
+        const promiseDate = new Date();
+        promiseDate.setDate(promiseDate.getDate() + 15);
+        updateClientDto.promisePaymentDate = promiseDate;
+      }
+      if (!updateClientDto.promisePaymentAmount && client.debtAmount) {
+        updateClientDto.promisePaymentAmount = client.debtAmount;
+      }
     }
 
     Object.assign(client, updateClientDto);
