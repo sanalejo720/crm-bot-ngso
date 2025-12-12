@@ -1,0 +1,198 @@
+-- Actualizar flujo del bot con mensajes correctos NGSO
+
+-- 1. NODO INICIO - Saludo y autorización con botones
+UPDATE bot_nodes SET 
+  name = 'Saludo y Autorización',
+  config = '{
+    "message": "👋 Hola.\n\nEn NGSO Abogados S.A.S. protegemos tu información personal de acuerdo con la Ley 1581 de 2012, el Decreto 1377 de 2013 y demás normas sobre protección de datos personales vigentes en Colombia.\n\nAl continuar, autorizas de manera previa, expresa e informada el tratamiento de tus datos personales para fines de gestión de cobranza, contacto y seguimiento de tu caso, conforme a nuestra Política de Protección de Datos Personales, disponible en:\n👉 http://www.ngsoabogados.com/pol-tica-de-protecci-n-de-datos-personales.html\n\nPor favor indica una opción:",
+    "useButtons": true,
+    "buttonTitle": "Autorización de Datos",
+    "buttons": [
+      {"id": "acepto", "text": "✅ Acepto"},
+      {"id": "no_acepto", "text": "❌ No acepto"}
+    ]
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000002'
+WHERE id = '10000000-0000-0000-0000-000000000001';
+
+-- 2. NODO VALIDAR AUTORIZACIÓN - Condición
+UPDATE bot_nodes SET 
+  name = 'Validar Autorización',
+  config = '{
+    "conditions": [
+      {"id": "acepta-boton", "value": "acepto", "operator": "equals", "variable": "selected_button", "targetNodeId": "10000000-0000-0000-0000-000000000003"},
+      {"id": "acepta-1", "value": "1", "operator": "equals", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000003"},
+      {"id": "acepta-si", "value": "si", "operator": "contains_ignore_case", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000003"},
+      {"id": "acepta-acepto", "value": "acepto", "operator": "contains_ignore_case", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000003"}
+    ],
+    "defaultNodeId": "10000000-0000-0000-0000-000000000099"
+  }'::jsonb
+WHERE id = '10000000-0000-0000-0000-000000000002';
+
+-- 3. NODO CONFIRMACIÓN ACEPTACIÓN + Solicitar documento
+UPDATE bot_nodes SET 
+  name = 'Confirmación y Solicitar Documento',
+  config = '{
+    "message": "✅ Gracias.\n\nHemos registrado tu autorización para el tratamiento de datos personales.\nAhora continuaremos con la validación de tu información para poder ayudarte con tu caso.\n\nPara continuar, por favor indícanos tu número de documento de identidad (sin puntos ni comas).\n\n📝 Ejemplo: 123456789"
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000004'
+WHERE id = '10000000-0000-0000-0000-000000000003';
+
+-- 4. NODO CAPTURAR DOCUMENTO - Input
+UPDATE bot_nodes SET 
+  name = 'Capturar Documento',
+  config = '{
+    "timeout": 180,
+    "validation": {
+      "type": "regex",
+      "pattern": "^[0-9]{5,15}$",
+      "errorMessage": "Por favor ingresa un número de documento válido (solo números, entre 5 y 15 dígitos)."
+    },
+    "variableName": "debtorDocument"
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000005'
+WHERE id = '10000000-0000-0000-0000-000000000004';
+
+-- 5. NODO BUSCAR DEUDOR - Mensaje de búsqueda
+UPDATE bot_nodes SET 
+  name = 'Buscar Deudor',
+  config = '{
+    "message": "🔍 Buscando tu información en nuestro sistema... Un momento por favor."
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000006'
+WHERE id = '10000000-0000-0000-0000-000000000005';
+
+-- 6. CREAR NODO API CALL para buscar deudor (si no existe)
+INSERT INTO bot_nodes (id, name, type, config, "nextNodeId", "positionX", "positionY", "flowId", "createdAt", "updatedAt")
+VALUES (
+  '10000000-0000-0000-0000-000000000006',
+  'API Buscar Deudor',
+  'api_call',
+  '{
+    "apiConfig": {
+      "method": "GET",
+      "url": "/api/debtors/search-by-document/{{debtorDocument}}",
+      "responseVariable": "debtor_info"
+    }
+  }'::jsonb,
+  '10000000-0000-0000-0000-000000000007',
+  300,
+  500,
+  'ab8937f9-cc0c-4d5a-98c7-689600fbd54f',
+  NOW(),
+  NOW()
+) ON CONFLICT (id) DO UPDATE SET
+  config = EXCLUDED.config,
+  "nextNodeId" = EXCLUDED."nextNodeId";
+
+-- 7. NODO PRESENTAR DEUDA - Muestra info del deudor
+UPDATE bot_nodes SET 
+  name = 'Presentar Información Deuda',
+  config = '{
+    "message": "✅ Hemos encontrado información asociada a tu documento:\n\n• Nombre: {{debtor_nombre}}\n• Compañía: {{debtor_compania}}\n• Campaña: {{debtor_campana}}\n• Valor de la deuda: {{debtor_valor_deuda}}\n• Correo: {{debtor_correo}}\n• Teléfono: {{debtor_telefono}}\n• Estado: {{debtor_estado}}\n\nA continuación, te comunicaremos con uno de nuestros asesores para revisar tu caso y ofrecerte alternativas de solución.",
+    "useButtons": true,
+    "buttonTitle": "¿Qué deseas hacer?",
+    "buttons": [
+      {"id": "hablar_asesor", "text": "💬 Hablar con asesor"},
+      {"id": "ver_metodos_pago", "text": "💳 Ver métodos de pago"}
+    ]
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000009'
+WHERE id = '10000000-0000-0000-0000-000000000007';
+
+-- 8. CREAR NODO para cuando NO se encuentra deudor
+INSERT INTO bot_nodes (id, name, type, config, "nextNodeId", "positionX", "positionY", "flowId", "createdAt", "updatedAt")
+VALUES (
+  '10000000-0000-0000-0000-000000000008',
+  'Deudor No Encontrado',
+  'message',
+  '{
+    "message": "⚠️ No hemos encontrado ninguna cuenta asociada al número de documento {{debtorDocument}} en nuestra base de datos.\n\nTe vamos a trasladar con un asesor para que valide tu información y, si es necesario, registre tus datos correctamente en el sistema."
+  }'::jsonb,
+  '10000000-0000-0000-0000-000000000010',
+  500,
+  600,
+  'ab8937f9-cc0c-4d5a-98c7-689600fbd54f',
+  NOW(),
+  NOW()
+) ON CONFLICT (id) DO UPDATE SET
+  config = EXCLUDED.config,
+  "nextNodeId" = EXCLUDED."nextNodeId";
+
+-- 9. NODO EVALUAR OPCIÓN - Condición
+UPDATE bot_nodes SET 
+  name = 'Evaluar Opción Usuario',
+  config = '{
+    "conditions": [
+      {"id": "opcion-asesor", "value": "hablar_asesor", "operator": "equals", "variable": "selected_button", "targetNodeId": "10000000-0000-0000-0000-000000000010"},
+      {"id": "opcion-1", "value": "1", "operator": "equals", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000010"},
+      {"id": "opcion-metodos", "value": "ver_metodos_pago", "operator": "equals", "variable": "selected_button", "targetNodeId": "10000000-0000-0000-0000-000000000011"},
+      {"id": "opcion-2", "value": "2", "operator": "equals", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000011"}
+    ],
+    "defaultNodeId": "10000000-0000-0000-0000-000000000010"
+  }'::jsonb
+WHERE id = '10000000-0000-0000-0000-000000000009';
+
+-- 10. NODO TRANSFERIR A AGENTE
+UPDATE bot_nodes SET 
+  name = 'Transferir a Asesor',
+  config = '{
+    "message": "🔄 En este momento estamos asignando tu caso a uno de nuestros asesores disponibles.\n\n⏳ Por favor espera un momento mientras conectamos tu chat.\n\nTe notificaremos en este mismo canal cuando el asesor haya sido asignado.",
+    "skills": ["cobranza"],
+    "priority": "normal"
+  }'::jsonb,
+  "nextNodeId" = NULL
+WHERE id = '10000000-0000-0000-0000-000000000010';
+
+-- 11. NODO MÉTODOS DE PAGO
+UPDATE bot_nodes SET 
+  name = 'Métodos de Pago',
+  config = '{
+    "message": "💳 Métodos de pago disponibles:\n\n✅ Transferencia bancaria\n✅ PSE\n✅ Tarjeta de crédito/débito\n✅ Efectivo en puntos autorizados\n\n¿Deseas hablar con un asesor para más información?",
+    "useButtons": true,
+    "buttonTitle": "¿Hablar con asesor?",
+    "buttons": [
+      {"id": "si_asesor", "text": "✅ Sí, conectar con asesor"},
+      {"id": "no_gracias", "text": "❌ No, gracias"}
+    ]
+  }'::jsonb,
+  "nextNodeId" = '10000000-0000-0000-0000-000000000012'
+WHERE id = '10000000-0000-0000-0000-000000000011';
+
+-- 12. NODO PREGUNTAR ASESOR - Condición
+UPDATE bot_nodes SET 
+  name = 'Evaluar Si Quiere Asesor',
+  config = '{
+    "conditions": [
+      {"id": "si-asesor-btn", "value": "si_asesor", "operator": "equals", "variable": "selected_button", "targetNodeId": "10000000-0000-0000-0000-000000000010"},
+      {"id": "si-asesor-1", "value": "1", "operator": "equals", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000010"},
+      {"id": "si-asesor-texto", "value": "si", "operator": "contains_ignore_case", "variable": "user_response", "targetNodeId": "10000000-0000-0000-0000-000000000010"}
+    ],
+    "defaultNodeId": "10000000-0000-0000-0000-000000000013"
+  }'::jsonb
+WHERE id = '10000000-0000-0000-0000-000000000012';
+
+-- 13. NODO DESPEDIDA (cuando no quiere asesor)
+UPDATE bot_nodes SET 
+  name = 'Despedida',
+  type = 'end',
+  config = '{
+    "message": "Gracias por comunicarte con nosotros.\n\nSi en el futuro deseas retomar tu caso o conocer alternativas de pago, puedes contactarnos nuevamente por este canal.\n\n¡Que tengas un excelente día! 😊"
+  }'::jsonb,
+  "nextNodeId" = NULL
+WHERE id = '10000000-0000-0000-0000-000000000013';
+
+-- 99. NODO RECHAZO AUTORIZACIÓN - Cambiado a END para cerrar chat
+UPDATE bot_nodes SET 
+  name = 'Rechazo Autorización',
+  type = 'end',
+  config = '{
+    "message": "❌ Entendemos tu decisión.\n\nSin embargo, te informamos que no podemos continuar con la gestión ni brindarte información sobre tu caso porque la autorización para el tratamiento de tus datos personales es obligatoria para prestar nuestros servicios, conforme a la normativa colombiana de protección de datos.\n\nSi en algún momento decides autorizar el tratamiento de tus datos, podrás volver a escribirnos y con gusto retomaremos la atención.\n\n¡Hasta pronto!"
+  }'::jsonb,
+  "nextNodeId" = NULL
+WHERE id = '10000000-0000-0000-0000-000000000099';
+
+-- Actualizar el startNodeId del flujo
+UPDATE bot_flows 
+SET "startNodeId" = '10000000-0000-0000-0000-000000000001'
+WHERE id = 'ab8937f9-cc0c-4d5a-98c7-689600fbd54f';

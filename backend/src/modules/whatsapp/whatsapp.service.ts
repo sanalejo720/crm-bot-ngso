@@ -370,6 +370,8 @@ export class WhatsappService {
 
   /**
    * Enviar mensaje con botones interactivos
+   * Para Twilio y WPPConnect: convierte botones a texto con opciones numeradas
+   * ya que los botones interactivos nativos requieren templates aprobados
    */
   async sendButtonsMessage(
     whatsappNumberId: string,
@@ -380,36 +382,34 @@ export class WhatsappService {
   ) {
     const whatsappNumber = await this.findOne(whatsappNumberId);
 
-    if (whatsappNumber.provider !== WhatsappProvider.WPPCONNECT) {
-      throw new BadRequestException('Botones interactivos solo soportados con WPPConnect');
+    // Convertir botones a texto con opciones numeradas
+    // Esto funciona para todos los proveedores sin necesidad de templates aprobados
+    let messageText = '';
+    
+    if (title) {
+      messageText += `*${title}*\n\n`;
     }
-
-    const sessionName = whatsappNumber.phoneNumber;
-    const formattedTo = to.includes('@') ? to : `${to}@c.us`;
-
-    this.logger.log(`📤 Enviando botones via WPPConnect - To: ${formattedTo}`);
-
-    try {
-      const result = await this.wppConnectService.sendButtonsMessage(
-        sessionName,
-        formattedTo,
-        title,
-        description,
-        buttons,
-      );
-
-      return {
-        messageId: result?.id || `wpp-btn-${Date.now()}`,
-        metadata: result,
-      };
-    } catch (error) {
-      this.logger.error(`Error enviando botones: ${error.message}`);
-      throw error;
+    
+    if (description) {
+      messageText += `${description}\n\n`;
     }
+    
+    // Agregar opciones numeradas
+    buttons.forEach((button, index) => {
+      messageText += `${index + 1}. ${button.text}\n`;
+    });
+    
+    messageText += '\n_Responde con el número de tu opción_';
+
+    this.logger.log(`📤 Enviando mensaje con opciones - To: ${to}, Provider: ${whatsappNumber.provider}`);
+
+    // Enviar como mensaje de texto normal
+    return this.sendMessage(whatsappNumberId, to, messageText, MessageType.TEXT);
   }
 
   /**
    * Enviar lista interactiva
+   * Para Twilio y WPPConnect: convierte lista a texto con opciones numeradas
    */
   async sendListMessage(
     whatsappNumberId: string,
@@ -424,33 +424,77 @@ export class WhatsappService {
   ) {
     const whatsappNumber = await this.findOne(whatsappNumberId);
 
-    if (whatsappNumber.provider !== WhatsappProvider.WPPCONNECT) {
-      throw new BadRequestException('Listas interactivas solo soportadas con WPPConnect');
+    // Convertir lista a texto con opciones numeradas
+    let messageText = '';
+    
+    if (title) {
+      messageText += `*${title}*\n\n`;
+    }
+    
+    if (description) {
+      messageText += `${description}\n\n`;
+    }
+    
+    let optionNumber = 1;
+    sections.forEach((section) => {
+      if (section.title) {
+        messageText += `*${section.title}*\n`;
+      }
+      section.rows.forEach((row) => {
+        messageText += `${optionNumber}. ${row.title}`;
+        if (row.description) {
+          messageText += ` - ${row.description}`;
+        }
+        messageText += '\n';
+        optionNumber++;
+      });
+      messageText += '\n';
+    });
+    
+    messageText += '_Responde con el número de tu opción_';
+
+    this.logger.log(`📤 Enviando mensaje con lista de opciones - To: ${to}, Provider: ${whatsappNumber.provider}`);
+
+    // Enviar como mensaje de texto normal
+    return this.sendMessage(whatsappNumberId, to, messageText, MessageType.TEXT);
+  }
+
+  /**
+   * Enviar mensaje usando Content Template de Twilio (para botones interactivos reales)
+   * @param contentSid - El SID del Content Template (HX...)
+   * @param contentVariables - Variables para reemplazar {{1}}, {{2}}, etc.
+   */
+  async sendContentTemplate(
+    whatsappNumberId: string,
+    to: string,
+    contentSid: string,
+    contentVariables?: Record<string, string>,
+  ): Promise<{ messageId: string; metadata?: any }> {
+    const whatsappNumber = await this.findOne(whatsappNumberId);
+
+    if (whatsappNumber.provider !== WhatsappProvider.TWILIO) {
+      throw new BadRequestException('Content Templates solo están disponibles para Twilio');
     }
 
-    const sessionName = whatsappNumber.phoneNumber;
-    const formattedTo = to.includes('@') ? to : `${to}@c.us`;
-
-    this.logger.log(`📤 Enviando lista via WPPConnect - To: ${formattedTo}`);
-
-    try {
-      const result = await this.wppConnectService.sendListMessage(
-        sessionName,
-        formattedTo,
-        title,
-        description,
-        'Más opciones',
-        buttonText,
-        sections,
-      );
-
-      return {
-        messageId: result?.id || `wpp-list-${Date.now()}`,
-        metadata: result,
-      };
-    } catch (error) {
-      this.logger.error(`Error enviando lista: ${error.message}`);
-      throw error;
+    if (!whatsappNumber.isActive) {
+      throw new BadRequestException('Número WhatsApp inactivo');
     }
+
+    // Inicializar cliente si no existe
+    this.twilioService.initializeClient(
+      whatsappNumber.id,
+      whatsappNumber.twilioAccountSid,
+      whatsappNumber.twilioAuthToken,
+    );
+
+    this.logger.log(`📤 Enviando Content Template ${contentSid} a ${to}`);
+
+    return await this.twilioService.sendContentMessage(
+      whatsappNumber.id,
+      whatsappNumber.twilioPhoneNumber,
+      to,
+      contentSid,
+      contentVariables,
+    );
   }
 }

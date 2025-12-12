@@ -294,20 +294,28 @@ export default function ModernSidebar({
                 width: 40,
                 height: 40,
                 borderRadius: 2,
-                background: 'linear-gradient(135deg, #ff6b35 0%, #e55a2b 100%)',
+                background: 'linear-gradient(135deg, #25D366 0%, #128C7E 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0px 4px 12px rgba(255, 107, 53, 0.4)',
+                boxShadow: '0px 4px 12px rgba(37, 211, 102, 0.4)',
               }}
             >
               <WhatsApp sx={{ color: '#fff', fontSize: 24 }} />
             </Box>
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1 }}>
-                NGS&O
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              <Box
+                component="img"
+                src="/logo-ngso.jpeg"
+                alt="NGS&O"
+                sx={{
+                  height: 36,
+                  maxWidth: 120,
+                  objectFit: 'contain',
+                  borderRadius: 1,
+                }}
+              />
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
                 CRM Gestión
               </Typography>
             </Box>

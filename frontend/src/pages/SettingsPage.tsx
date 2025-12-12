@@ -53,8 +53,7 @@ export default function SettingsPage() {
   const [tabValue, setTabValue] = useState(0);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [profile, setProfile] = useState({
-    firstName: '',
-    lastName: '',
+    fullName: '',
     email: '',
     phone: '',
   });
@@ -86,8 +85,7 @@ export default function SettingsPage() {
       if (userStr) {
         const user = JSON.parse(userStr);
         setProfile({
-          firstName: user.firstName || '',
-          lastName: user.lastName || '',
+          fullName: user.fullName || '',
           email: user.email || '',
           phone: user.phone || '',
         });
@@ -99,12 +97,26 @@ export default function SettingsPage() {
 
   const handleSaveProfile = async () => {
     try {
-      // Update profile via API
-      await api.patch('/users/me', profile);
+      // Update profile via API - solo enviar campos permitidos
+      await api.patch('/users/me', {
+        fullName: profile.fullName,
+        phone: profile.phone,
+      });
+      
+      // Actualizar localStorage
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        user.fullName = profile.fullName;
+        user.phone = profile.phone;
+        localStorage.setItem('user', JSON.stringify(user));
+      }
+      
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving profile:', error);
+      alert(error.response?.data?.message || 'Error al guardar perfil');
     }
   };
 
@@ -176,12 +188,11 @@ export default function SettingsPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
                 <Avatar sx={{ width: 80, height: 80, mr: 3, bgcolor: 'primary.main' }}>
-                  {profile.firstName.charAt(0)}
-                  {profile.lastName.charAt(0)}
+                  {profile.fullName.charAt(0) || 'U'}
                 </Avatar>
                 <Box>
                   <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    {profile.firstName} {profile.lastName}
+                    {profile.fullName || 'Sin nombre'}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {profile.email}
@@ -196,17 +207,10 @@ export default function SettingsPage() {
                 <Box sx={{ flex: 1 }}>
                   <TextField
                     fullWidth
-                    label="Nombre"
-                    value={profile.firstName}
-                    onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
-                  />
-                </Box>
-                <Box sx={{ flex: 1 }}>
-                  <TextField
-                    fullWidth
-                    label="Apellido"
-                    value={profile.lastName}
-                    onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
+                    label="Nombre Completo"
+                    value={profile.fullName}
+                    onChange={(e) => setProfile({ ...profile, fullName: e.target.value })}
+                    helperText="Ingresa tu nombre completo"
                   />
                 </Box>
                 <Box sx={{ flex: 1 }}>
@@ -215,7 +219,8 @@ export default function SettingsPage() {
                     label="Email"
                     type="email"
                     value={profile.email}
-                    onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                    disabled
+                    helperText="El email no se puede cambiar"
                   />
                 </Box>
                 <Box sx={{ flex: 1 }}>

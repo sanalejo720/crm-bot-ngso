@@ -224,6 +224,55 @@ export class TwilioService {
   }
 
   /**
+   * Enviar mensaje usando Content Template (para botones interactivos)
+   * @param contentSid - El SID del Content Template (HX...)
+   * @param contentVariables - Variables para reemplazar en el template {{1}}, {{2}}, etc.
+   */
+  async sendContentMessage(
+    whatsappNumberId: string,
+    from: string,
+    to: string,
+    contentSid: string,
+    contentVariables?: Record<string, string>,
+  ): Promise<{ messageId: string; metadata?: any }> {
+    try {
+      const client = this.getClient(whatsappNumberId);
+
+      const fromNumber = from.startsWith('whatsapp:') ? from : `whatsapp:${from}`;
+      const toNumber = to.startsWith('whatsapp:') ? to : `whatsapp:${to}`;
+
+      const messageParams: any = {
+        from: fromNumber,
+        to: toNumber,
+        contentSid,
+      };
+
+      // Agregar variables si existen
+      if (contentVariables && Object.keys(contentVariables).length > 0) {
+        messageParams.contentVariables = JSON.stringify(contentVariables);
+      }
+
+      this.logger.log(`📤 Enviando Content Template: ${contentSid} a ${to}`);
+
+      const message = await client.messages.create(messageParams);
+
+      this.logger.log(`✅ Content Template enviado vía Twilio: ${message.sid}`);
+
+      return {
+        messageId: message.sid,
+        metadata: {
+          status: message.status,
+          contentSid,
+          dateCreated: message.dateCreated,
+        },
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error enviando Content Template: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  /**
    * Remover cliente
    */
   removeClient(whatsappNumberId: string): void {

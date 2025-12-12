@@ -50,4 +50,10 @@ export class UpdateChatDto extends PartialType(CreateChatDto) {
     assignedAgentName?: string;
     closureType?: 'paid' | 'promise';
   };
+
+  @ApiPropertyOptional({ example: new Date() })
+  @IsOptional()
+  @Type(() => Date)
+  @IsDate()
+  closedAt?: Date;
 }

@@ -141,17 +141,30 @@ export class BotEngineService {
           const buttons = currentNode.config.buttons;
           const inputLower = userInput.toLowerCase().trim();
           
-          const matchedButton = buttons.find((btn: any) => 
-            btn.id?.toLowerCase() === inputLower ||
-            btn.text?.toLowerCase() === inputLower ||
-            btn.value?.toLowerCase() === inputLower ||
-            btn.text?.toLowerCase().includes(inputLower) ||
-            inputLower.includes(btn.text?.toLowerCase() || '')
-          );
+          let matchedButton = null;
+          
+          // Primero, verificar si es una respuesta numérica (1, 2, 3, etc.)
+          const numericInput = parseInt(inputLower, 10);
+          if (!isNaN(numericInput) && numericInput >= 1 && numericInput <= buttons.length) {
+            // El usuario respondió con un número, seleccionar el botón correspondiente
+            matchedButton = buttons[numericInput - 1];
+            this.logger.log(`🔢 Respuesta numérica ${numericInput} -> Botón: ${matchedButton?.text}`);
+          } else {
+            // Buscar por coincidencia de texto
+            matchedButton = buttons.find((btn: any) => 
+              btn.id?.toLowerCase() === inputLower ||
+              btn.text?.toLowerCase() === inputLower ||
+              btn.value?.toLowerCase() === inputLower ||
+              btn.text?.toLowerCase().includes(inputLower) ||
+              inputLower.includes(btn.text?.toLowerCase() || '')
+            );
+          }
           
           if (matchedButton) {
             session.variables['selected_button'] = matchedButton.id || matchedButton.value;
             this.logger.log(`🔘 Botón seleccionado: ${matchedButton.text} (ID: ${matchedButton.id})`);
+          } else {
+            this.logger.warn(`⚠️ No se encontró botón para respuesta: "${userInput}"`);
           }
           
           // Si hay responseNodeId (normalmente un CONDITION), usarlo
@@ -247,7 +260,7 @@ export class BotEngineService {
         break;
 
       case BotNodeType.END:
-        await this.executeEndNode(chatId);
+        await this.executeEndNode(chatId, node);
         break;
 
       default:
@@ -267,14 +280,41 @@ export class BotEngineService {
     }
 
     const chat = await this.chatsService.findOne(chatId);
-    const processedMessage = this.replaceVariables(message, this.sessions.get(chatId)?.variables);
+    const session = this.sessions.get(chatId);
+    const processedMessage = this.replaceVariables(message, session?.variables);
 
     try {
       let result;
       let savedContent = processedMessage;
 
-      // Verificar si debe usar botones interactivos
-      if (node.config.useButtons && node.config.buttons && node.config.buttons.length > 0) {
+      // Verificar si hay un Content Template de Twilio configurado
+      if (node.config.contentSid && chat.whatsappNumber?.provider === 'twilio') {
+        // Preparar variables para el template
+        const contentVariables: Record<string, string> = {};
+        
+        if (node.config.contentVariables) {
+          // Mapear variables del bot a variables del template {{1}}, {{2}}, etc.
+          for (const [templateVar, botVar] of Object.entries(node.config.contentVariables)) {
+            const value = session?.variables?.[botVar as string] || '';
+            contentVariables[templateVar] = String(value);
+          }
+        }
+
+        this.logger.log(`📤 Enviando Content Template: ${node.config.contentSid}`);
+        this.logger.log(`📝 Variables: ${JSON.stringify(contentVariables)}`);
+
+        result = await this.whatsappService.sendContentTemplate(
+          chat.whatsappNumber.id,
+          chat.contactPhone,
+          node.config.contentSid,
+          Object.keys(contentVariables).length > 0 ? contentVariables : undefined,
+        );
+
+        // Guardar el mensaje procesado (con variables reemplazadas)
+        savedContent = processedMessage;
+
+      } else if (node.config.useButtons && node.config.buttons && node.config.buttons.length > 0) {
+        // Usar botones como texto numerado (fallback si no hay Content Template)
         const buttons = node.config.buttons.map(btn => ({
           id: btn.id,
           text: btn.text,
@@ -292,8 +332,12 @@ export class BotEngineService {
           buttons,
         );
 
-        // Guardar el contenido con indicación de botones
-        savedContent = `${processedMessage}\n\n[Botones: ${buttons.map(b => b.text).join(' | ')}]`;
+        // Guardar el contenido CON las opciones numeradas (igual que se envía)
+        let buttonsText = '';
+        buttons.forEach((btn, index) => {
+          buttonsText += `${index + 1}. ${btn.text}\n`;
+        });
+        savedContent = `${processedMessage}\n\n${buttonsText}\n_Responde con el número de tu opción_`;
       } else {
         // Enviar mensaje de texto normal
         result = await this.whatsappService.sendMessage(
@@ -570,18 +614,78 @@ export class BotEngineService {
   }
 
   /**
-   * Ejecutar nodo de llamada API
+   * Ejecutar nodo de llamada API - Buscar deudor
    */
   private async executeApiCallNode(chatId: string, node: BotNode): Promise<void> {
-    // Implementación simplificada - en producción usar axios
-    this.logger.log('Ejecutando llamada API (no implementado)');
+    const session = this.sessions.get(chatId);
+    
+    if (!session) {
+      this.logger.warn(`No hay sesión activa para chat ${chatId}`);
+      return;
+    }
 
-    if (node.nextNodeId) {
-      const session = this.sessions.get(chatId);
-      if (session) {
-        session.currentNodeId = node.nextNodeId;
-        await this.executeNode(chatId, node.nextNodeId);
+    const apiConfig = node.config.apiConfig;
+    this.logger.log(`🔍 Ejecutando API Call: ${apiConfig?.url || 'búsqueda de deudor'}`);
+
+    try {
+      // Buscar deudor por número de documento capturado
+      const documentNumber = session.variables?.debtorDocument;
+      
+      if (documentNumber) {
+        this.logger.log(`📋 Buscando deudor con documento: ${documentNumber}`);
+        
+        const debtor = await this.debtorsService.findByDocumentNumber(documentNumber);
+        
+        if (debtor) {
+          this.logger.log(`✅ Deudor encontrado: ${debtor.fullName}`);
+          
+          // Guardar información del deudor en las variables de sesión
+          session.variables.debtor_encontrado = true;
+          session.variables.debtor_id = debtor.id;
+          session.variables.debtor_nombre = debtor.fullName || 'No disponible';
+          session.variables.debtor_documento = debtor.documentNumber || 'No disponible';
+          session.variables.debtor_telefono = debtor.phone || 'No disponible';
+          session.variables.debtor_correo = debtor.email || 'No disponible';
+          session.variables.debtor_valor_deuda = debtor.debtAmount 
+            ? `$${Number(debtor.debtAmount).toLocaleString('es-CO')}` 
+            : 'No disponible';
+          session.variables.debtor_estado = debtor.status || 'No disponible';
+          session.variables.debtor_compania = 'NGSO Abogados S.A.S.';
+          session.variables.debtor_campana = debtor.campaign?.name || 'No disponible';
+          
+          // Actualizar el chat con el cliente/deudor encontrado
+          const chat = await this.chatsService.findOne(chatId);
+          if (debtor.campaign?.id && !chat.campaignId) {
+            await this.chatsService.update(chatId, {
+              campaignId: debtor.campaign.id,
+            });
+          }
+        } else {
+          this.logger.log(`❌ Deudor no encontrado con documento: ${documentNumber}`);
+          session.variables.debtor_encontrado = false;
+          session.variables.debtor_nombre = 'No encontrado';
+          session.variables.debtor_documento = documentNumber;
+        }
+      } else {
+        this.logger.warn('No se proporcionó número de documento para buscar');
+        session.variables.debtor_encontrado = false;
       }
+
+      // Actualizar sesión
+      this.sessions.set(chatId, session);
+
+    } catch (error) {
+      this.logger.error(`Error en API Call: ${error.message}`);
+      session.variables.debtor_encontrado = false;
+      session.variables.api_error = error.message;
+      this.sessions.set(chatId, session);
+    }
+
+    // Continuar al siguiente nodo
+    if (node.nextNodeId) {
+      session.currentNodeId = node.nextNodeId;
+      this.sessions.set(chatId, session);
+      await this.executeNode(chatId, node.nextNodeId);
     }
   }
 
@@ -737,21 +841,45 @@ export class BotEngineService {
   /**
    * Ejecutar nodo de fin
    */
-  private async executeEndNode(chatId: string): Promise<void> {
+  private async executeEndNode(chatId: string, node?: BotNode): Promise<void> {
     this.logger.log(`Finalizando flujo para chat ${chatId}`);
 
-    await this.messagesService.create({
-      chatId,
-      type: MessageType.TEXT,
-      direction: MessageDirection.OUTBOUND,
-      senderType: MessageSenderType.BOT,
-      content: '¡Gracias por tu tiempo! Si necesitas más ayuda, no dudes en escribirnos.',
-    });
+    // Usar mensaje del nodo si existe, si no usar mensaje por defecto
+    const session = this.sessions.get(chatId);
+    const defaultMessage = '¡Gracias por tu tiempo! Si necesitas más ayuda, no dudes en escribirnos.';
+    const message = node?.config?.message 
+      ? this.replaceVariables(node.config.message, session?.variables)
+      : defaultMessage;
 
-    // Cerrar chat
+    const chat = await this.chatsService.findOne(chatId);
+    
+    try {
+      // Enviar mensaje de cierre
+      await this.whatsappService.sendMessage(
+        chat.whatsappNumber.id,
+        chat.contactPhone,
+        message,
+        MessageType.TEXT,
+      );
+
+      await this.messagesService.create({
+        chatId,
+        type: MessageType.TEXT,
+        direction: MessageDirection.OUTBOUND,
+        senderType: MessageSenderType.BOT,
+        content: message,
+      });
+    } catch (error) {
+      this.logger.error(`Error enviando mensaje de cierre: ${error.message}`);
+    }
+
+    // Cerrar chat (closedById queda null ya que fue cerrado por el bot automáticamente)
     await this.chatsService.update(chatId, {
       status: ChatStatus.RESOLVED,
+      closedAt: new Date(),
     });
+
+    this.logger.log(`✅ Chat ${chatId} cerrado automáticamente por el bot`);
 
     // Limpiar sesión
     this.sessions.delete(chatId);
