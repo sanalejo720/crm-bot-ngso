@@ -9,6 +9,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Campaign } from '../../campaigns/entities/campaign.entity';
+import { WhatsappNumber } from '../../whatsapp/entities/whatsapp-number.entity';
 
 export enum DocumentType {
   CC = 'CC', // Cédula de Ciudadanía
@@ -86,6 +87,14 @@ export class Debtor {
 
   @Column({ type: 'uuid', nullable: true })
   campaignId: string;
+
+  // Relación con WhatsApp Number
+  @ManyToOne(() => WhatsappNumber, { nullable: true })
+  @JoinColumn({ name: 'whatsappNumberId' })
+  whatsappNumber: WhatsappNumber;
+
+  @Column({ type: 'uuid', nullable: true })
+  whatsappNumberId: string;
 
   // Auditoría
   @CreateDateColumn()

@@ -136,7 +136,12 @@ export class DebtorsService {
   /**
    * Procesar archivo (CSV o Excel) y cargar deudores
    */
-  async uploadFromFile(fileBuffer: Buffer, filename: string): Promise<UploadResultDto> {
+  async uploadFromFile(
+    fileBuffer: Buffer, 
+    filename: string,
+    campaignId?: string,
+    whatsappNumberId?: string,
+  ): Promise<UploadResultDto> {
     const errors: UploadErrorDto[] = [];
     let rows: DebtorRowDto[] = [];
 
@@ -151,6 +156,12 @@ export class DebtorsService {
       }
 
       this.logger.log(`📄 Archivo parseado: ${rows.length} registros encontrados`);
+      if (campaignId) {
+        this.logger.log(`📋 Asignando a campaña: ${campaignId}`);
+      }
+      if (whatsappNumberId) {
+        this.logger.log(`📱 Número WhatsApp asignado: ${whatsappNumberId}`);
+      }
     } catch (error) {
       throw new BadRequestException(`Error al parsear archivo: ${error.message}`);
     }
@@ -220,12 +231,14 @@ export class DebtorsService {
           promiseDate: this.parseDate(row.promiseDate),
           status: row.status?.trim() || 'active',
           notes: row.notes?.trim() || null,
+          campaignId: campaignId || row.campaignId?.trim() || null,
+          whatsappNumberId: whatsappNumberId || null,
           metadata: {
             producto: row.producto?.trim(),
             numeroCredito: row.numeroCredito?.trim(),
             fechaVencimiento: row.fechaVencimiento?.trim(),
             compania: row.compania?.trim(),
-            campaignId: row.campaignId?.trim(),
+            campaignId: campaignId || row.campaignId?.trim(),
           },
         };
 

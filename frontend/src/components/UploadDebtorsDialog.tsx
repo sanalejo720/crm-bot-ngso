@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -21,6 +21,11 @@ import {
   TableHead,
   TableRow,
   Collapse,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  SelectChangeEvent,
 } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
@@ -30,9 +35,26 @@ import {
   Download as DownloadIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  Campaign as CampaignIcon,
+  WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import api from '../services/api';
+
+interface Campaign {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+}
+
+interface WhatsAppNumber {
+  id: string;
+  phoneNumber: string;
+  displayName: string;
+  status: string;
+  campaignId?: string;
+}
 
 interface UploadResult {
   success: boolean;
@@ -70,6 +92,58 @@ export const UploadDebtorsDialog: React.FC<Props> = ({ open, onClose, onSuccess 
   const [result, setResult] = useState<UploadResult | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  
+  // Campaign and WhatsApp number selection
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppNumber[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
+  const [selectedWhatsappNumberId, setSelectedWhatsappNumberId] = useState<string>('');
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
+  const [loadingNumbers, setLoadingNumbers] = useState(false);
+
+  // Fetch campaigns on mount
+  useEffect(() => {
+    if (open) {
+      fetchCampaigns();
+      fetchWhatsappNumbers();
+    }
+  }, [open]);
+
+  const fetchCampaigns = async () => {
+    setLoadingCampaigns(true);
+    try {
+      const response = await api.get('/campaigns');
+      const data = response.data.data || response.data || [];
+      setCampaigns(Array.isArray(data) ? data.filter((c: Campaign) => c.isActive) : []);
+    } catch (error) {
+      console.error('Error fetching campaigns:', error);
+      toast.error('Error al cargar campañas');
+    } finally {
+      setLoadingCampaigns(false);
+    }
+  };
+
+  const fetchWhatsappNumbers = async () => {
+    setLoadingNumbers(true);
+    try {
+      const response = await api.get('/whatsapp-numbers');
+      const data = response.data.data || response.data || [];
+      setWhatsappNumbers(Array.isArray(data) ? data.filter((n: WhatsAppNumber) => n.status === 'connected' || n.status === 'active') : []);
+    } catch (error) {
+      console.error('Error fetching WhatsApp numbers:', error);
+      toast.error('Error al cargar números de WhatsApp');
+    } finally {
+      setLoadingNumbers(false);
+    }
+  };
+
+  const handleCampaignChange = (event: SelectChangeEvent) => {
+    setSelectedCampaignId(event.target.value);
+  };
+
+  const handleWhatsappNumberChange = (event: SelectChangeEvent) => {
+    setSelectedWhatsappNumberId(event.target.value);
+  };
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -120,12 +194,24 @@ export const UploadDebtorsDialog: React.FC<Props> = ({ open, onClose, onSuccess 
 
   const handleUpload = async () => {
     if (!selectedFile) return;
+    
+    if (!selectedCampaignId) {
+      toast.warning('Por favor selecciona una campaña');
+      return;
+    }
+    
+    if (!selectedWhatsappNumberId) {
+      toast.warning('Por favor selecciona un número de WhatsApp');
+      return;
+    }
 
     setUploading(true);
     setUploadProgress(0);
 
     const formData = new FormData();
     formData.append('file', selectedFile);
+    formData.append('campaignId', selectedCampaignId);
+    formData.append('whatsappNumberId', selectedWhatsappNumberId);
 
     try {
       const response = await api.post<{ success: boolean; message: string; data: UploadResult }>(
@@ -170,6 +256,8 @@ export const UploadDebtorsDialog: React.FC<Props> = ({ open, onClose, onSuccess 
       setSelectedFile(null);
       setResult(null);
       setShowErrors(false);
+      setSelectedCampaignId('');
+      setSelectedWhatsappNumberId('');
       onClose();
     }
   };
@@ -216,6 +304,67 @@ Juan Perez,CC,1234567890,3001234567,juan@example.com,Calle 123 #45-67,1500000,20
             <br />
             <strong>Columnas requeridas:</strong> nombre, tipo_doc, documento
           </Alert>
+
+          {/* Selectores de Campaña y WhatsApp */}
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <FormControl sx={{ minWidth: 250, flex: 1 }}>
+              <InputLabel id="campaign-select-label">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <CampaignIcon fontSize="small" />
+                  Campaña *
+                </Box>
+              </InputLabel>
+              <Select
+                labelId="campaign-select-label"
+                id="campaign-select"
+                value={selectedCampaignId}
+                label="Campaña *"
+                onChange={handleCampaignChange}
+                disabled={uploading || loadingCampaigns}
+              >
+                {loadingCampaigns ? (
+                  <MenuItem disabled>Cargando...</MenuItem>
+                ) : campaigns.length === 0 ? (
+                  <MenuItem disabled>No hay campañas disponibles</MenuItem>
+                ) : (
+                  campaigns.map((campaign) => (
+                    <MenuItem key={campaign.id} value={campaign.id}>
+                      {campaign.name}
+                    </MenuItem>
+                  ))
+                )}
+              </Select>
+            </FormControl>
+
+            <FormControl sx={{ minWidth: 250, flex: 1 }}>
+              <InputLabel id="whatsapp-select-label">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <WhatsAppIcon fontSize="small" />
+                  Número WhatsApp *
+                </Box>
+              </InputLabel>
+              <Select
+                labelId="whatsapp-select-label"
+                id="whatsapp-select"
+                value={selectedWhatsappNumberId}
+                label="Número WhatsApp *"
+                onChange={handleWhatsappNumberChange}
+                disabled={uploading || loadingNumbers}
+              >
+                {loadingNumbers ? (
+                  <MenuItem disabled>Cargando...</MenuItem>
+                ) : whatsappNumbers.length === 0 ? (
+                  <MenuItem disabled>No hay números disponibles</MenuItem>
+                ) : (
+                  whatsappNumbers.map((number) => (
+                    <MenuItem key={number.id} value={number.id}>
+                      {number.displayName || number.phoneNumber} ({number.phoneNumber})
+                    </MenuItem>
+                  ))
+                )}
+              </Select>
+            </FormControl>
+          </Box>
 
           {/* Botón de plantilla */}
           <Button

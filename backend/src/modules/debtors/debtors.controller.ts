@@ -152,6 +152,14 @@ export class DebtorsController {
           format: 'binary',
           description: 'Archivo CSV o Excel (.xlsx, .xls)',
         },
+        campaignId: {
+          type: 'string',
+          description: 'ID de la campaña a la que se asignarán los deudores',
+        },
+        whatsappNumberId: {
+          type: 'string',
+          description: 'ID del número de WhatsApp asignado',
+        },
       },
     },
   })
@@ -173,7 +181,11 @@ export class DebtorsController {
       }
     },
   }))
-  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('campaignId') campaignId?: string,
+    @Body('whatsappNumberId') whatsappNumberId?: string,
+  ) {
     if (!file) {
       return {
         success: false,
@@ -182,8 +194,19 @@ export class DebtorsController {
     }
 
     this.logger.log(`📁 Procesando archivo: ${file.originalname} (${(file.size / 1024).toFixed(2)} KB)`);
+    if (campaignId) {
+      this.logger.log(`📋 Campaña seleccionada: ${campaignId}`);
+    }
+    if (whatsappNumberId) {
+      this.logger.log(`📱 WhatsApp asignado: ${whatsappNumberId}`);
+    }
 
-    const result = await this.debtorsService.uploadFromFile(file.buffer, file.originalname);
+    const result = await this.debtorsService.uploadFromFile(
+      file.buffer, 
+      file.originalname,
+      campaignId,
+      whatsappNumberId,
+    );
 
     const message = result.success
       ? 'Archivo procesado exitosamente'
