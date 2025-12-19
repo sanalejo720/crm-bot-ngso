@@ -98,6 +98,25 @@ export const setPromisePayment = createAsyncThunk(
   }
 );
 
+export const updateClientData = createAsyncThunk(
+  'clients/updateClientData',
+  async (
+    { clientId, data }: { 
+      clientId: string; 
+      data: Partial<Client>;
+    },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await apiService.patch(`/clients/${clientId}`, data);
+      const result = response.data || response;
+      return result.data || result;
+    } catch (error: any) {
+      return rejectWithValue(error.response?.data?.message || 'Error actualizando cliente');
+    }
+  }
+);
+
 const clientsSlice = createSlice({
   name: 'clients',
   initialState,
@@ -156,6 +175,17 @@ const clientsSlice = createSlice({
 
     // Set promise payment
     builder.addCase(setPromisePayment.fulfilled, (state, action) => {
+      const index = state.items.findIndex(c => c.id === action.payload.id);
+      if (index !== -1) {
+        state.items[index] = action.payload;
+      }
+      if (state.selectedClient?.id === action.payload.id) {
+        state.selectedClient = action.payload;
+      }
+    });
+
+    // Update client data
+    builder.addCase(updateClientData.fulfilled, (state, action) => {
       const index = state.items.findIndex(c => c.id === action.payload.id);
       if (index !== -1) {
         state.items[index] = action.payload;

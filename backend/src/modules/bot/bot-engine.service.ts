@@ -655,9 +655,35 @@ export class BotEngineService {
           
           // Actualizar el chat con el cliente/deudor encontrado
           const chat = await this.chatsService.findOne(chatId);
+          
+          // Actualizar campaignId y debtorId
+          const updateData: any = {};
           if (debtor.campaign?.id && !chat.campaignId) {
-            await this.chatsService.update(chatId, {
-              campaignId: debtor.campaign.id,
+            updateData.campaignId = debtor.campaign.id;
+          }
+          // IMPORTANTE: Vincular el deudor al chat
+          if (debtor.id) {
+            updateData.debtorId = debtor.id;
+          }
+          
+          if (Object.keys(updateData).length > 0) {
+            await this.chatsService.update(chatId, updateData);
+            this.logger.log(`📝 Chat actualizado con debtorId: ${debtor.id}`);
+            
+            // Emitir evento para actualizar el panel en tiempo real
+            this.eventEmitter.emit('chat.debtor.linked', {
+              chatId,
+              debtorId: debtor.id,
+              debtorInfo: {
+                id: debtor.id,
+                fullName: debtor.fullName,
+                documentNumber: debtor.documentNumber,
+                phone: debtor.phone,
+                email: debtor.email,
+                debtAmount: debtor.debtAmount,
+                status: debtor.status,
+                campaignName: debtor.campaign?.name,
+              },
             });
           }
         } else {
@@ -706,12 +732,13 @@ export class BotEngineService {
     }
 
     // Verificar si hay asignación automática habilitada
-    const autoAssignment = campaign?.settings?.autoAssignment ?? false;
+    // Por defecto intentamos asignar automáticamente si hay agentes disponibles
+    const autoAssignment = campaign?.settings?.autoAssignment ?? true;
     let assignedAgent: User | null = null;
 
-    if (autoAssignment && chat.campaignId) {
-      this.logger.log(`🔄 Intentando asignación automática para campaña: ${campaign?.name || chat.campaignId}`);
-      assignedAgent = await this.findAvailableAgentForCampaign(chat.campaignId);
+    if (autoAssignment) {
+      this.logger.log(`🔄 Intentando asignación automática${campaign ? ` para campaña: ${campaign.name}` : ''}`);
+      assignedAgent = await this.findAvailableAgent(chat.campaignId);
     }
 
     // Preparar mensaje de transferencia
@@ -719,7 +746,14 @@ export class BotEngineService {
     if (assignedAgent) {
       transferMessage = `✅ *¡Excelente!*\n\nHas sido asignado a *${assignedAgent.fullName}*, quien te ayudará con tu solicitud.\n\nEn un momento te contactará. 🙌`;
     } else {
-      transferMessage = node.config.message || 'Perfecto, en un momento uno de nuestros asesores será asignado a tu caso para ayudarte con tu solicitud. ⏳\n\nPor favor espera un momento mientras te conectamos con un especialista.';
+      // Verificar si estamos fuera de horario (no hay agentes con jornada activa)
+      const isOutsideBusinessHours = await this.checkIfOutsideBusinessHours();
+      
+      if (isOutsideBusinessHours) {
+        transferMessage = `📋 *Tu solicitud ha sido registrada*\n\nEn este momento nos encontramos fuera de nuestro horario de atención.\n\n🕐 *Horario de atención:*\nLunes a Viernes: 7:00 AM - 6:00 PM\nSábados: 8:00 AM - 1:00 PM\n\nTu caso será asignado a uno de nuestros asesores y te contactaremos tan pronto estemos en horario hábil.\n\n¡Gracias por tu comprensión! 🙌`;
+      } else {
+        transferMessage = node.config.message || '📋 *Tu solicitud ha sido registrada*\n\nEn este momento todos nuestros asesores están ocupados.\n\nTu caso ha quedado en cola de atención y serás asignado al próximo asesor disponible.\n\n¡Gracias por tu paciencia! ⏳';
+      }
     }
     
     const processedMessage = this.replaceVariables(transferMessage, session?.variables);
@@ -773,7 +807,8 @@ export class BotEngineService {
       // Emitir evento de asignación
       this.eventEmitter.emit('chat.assigned', {
         chat,
-        agent: assignedAgent,
+        agentId: assignedAgent.id,
+        agentName: assignedAgent.fullName,
         autoAssigned: true,
       });
 
@@ -798,22 +833,99 @@ export class BotEngineService {
   }
 
   /**
+   * Verificar si estamos fuera de horario laboral
+   * Retorna true si NO hay ningún agente con jornada activa hoy
+   */
+  private async checkIfOutsideBusinessHours(): Promise<boolean> {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Contar agentes con jornada activa hoy
+    const activeWorkdaysCount = await this.userRepository
+      .createQueryBuilder('user')
+      .innerJoin('agent_workdays', 'workday', 'workday.agentId = user.id')
+      .where('user.isAgent = :isAgent', { isAgent: true })
+      .andWhere('user.status = :status', { status: 'active' })
+      .andWhere('workday.workDate = :today', { today: todayStr })
+      .andWhere('workday.clockInTime IS NOT NULL')
+      .andWhere('workday.clockOutTime IS NULL')
+      .getCount();
+
+    this.logger.debug(`🕐 Agentes con jornada activa: ${activeWorkdaysCount}`);
+    
+    // Si no hay agentes con jornada activa, estamos fuera de horario
+    return activeWorkdaysCount === 0;
+  }
+
+  /**
+   * Buscar agente disponible (primero busca por campaña, luego cualquiera disponible)
+   * IMPORTANTE: Solo considera agentes que han iniciado jornada laboral hoy
+   */
+  private async findAvailableAgent(campaignId?: string): Promise<User | null> {
+    // Si hay campaña, primero intentar con agentes de esa campaña
+    if (campaignId) {
+      const campaignAgent = await this.findAvailableAgentForCampaign(campaignId);
+      if (campaignAgent) {
+        return campaignAgent;
+      }
+    }
+
+    // Obtener fecha de hoy (solo fecha, sin hora)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Buscar cualquier agente disponible QUE HAYA INICIADO JORNADA HOY
+    const agent = await this.userRepository
+      .createQueryBuilder('user')
+      .innerJoin('agent_workdays', 'workday', 'workday.agentId = user.id')
+      .where('user.isAgent = :isAgent', { isAgent: true })
+      .andWhere('user.status = :status', { status: 'active' })
+      .andWhere('user.agentState = :agentState', { agentState: 'available' })
+      .andWhere('user.currentChatsCount < user.maxConcurrentChats')
+      // Validar jornada activa: clockInTime hoy y clockOutTime es NULL
+      .andWhere('workday.workDate = :today', { today: today.toISOString().split('T')[0] })
+      .andWhere('workday.clockInTime IS NOT NULL')
+      .andWhere('workday.clockOutTime IS NULL')
+      .orderBy('user.currentChatsCount', 'ASC')
+      .getOne();
+
+    if (agent) {
+      this.logger.log(`✅ Agente disponible encontrado (general con jornada activa): ${agent.fullName}`);
+      return agent;
+    }
+
+    this.logger.warn(`⚠️ No hay agentes disponibles CON JORNADA ACTIVA en el sistema`);
+    return null;
+  }
+
+  /**
    * Buscar agente disponible para una campaña específica
+   * IMPORTANTE: Solo considera agentes que han iniciado jornada laboral hoy
    */
   private async findAvailableAgentForCampaign(campaignId: string): Promise<User | null> {
-    // Primero buscar agentes asignados directamente a la campaña
+    // Obtener fecha de hoy (solo fecha, sin hora)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
+    // Primero buscar agentes asignados directamente a la campaña CON JORNADA ACTIVA
     let agent = await this.userRepository
       .createQueryBuilder('user')
+      .innerJoin('agent_workdays', 'workday', 'workday.agentId = user.id')
       .where('user.isAgent = :isAgent', { isAgent: true })
       .andWhere('user.status = :status', { status: 'active' })
       .andWhere('user.agentState = :agentState', { agentState: 'available' })
       .andWhere('user.currentChatsCount < user.maxConcurrentChats')
       .andWhere('user.campaignId = :campaignId', { campaignId })
+      // Validar jornada activa
+      .andWhere('workday.workDate = :today', { today: todayStr })
+      .andWhere('workday.clockInTime IS NOT NULL')
+      .andWhere('workday.clockOutTime IS NULL')
       .orderBy('user.currentChatsCount', 'ASC')
       .getOne();
 
     if (agent) {
-      this.logger.log(`✅ Agente encontrado (campaña directa): ${agent.fullName}`);
+      this.logger.log(`✅ Agente encontrado (campaña directa con jornada): ${agent.fullName}`);
       return agent;
     }
 
@@ -821,20 +933,25 @@ export class BotEngineService {
     agent = await this.userRepository
       .createQueryBuilder('user')
       .innerJoin('user_campaigns', 'uc', 'uc.userId = user.id')
+      .innerJoin('agent_workdays', 'workday', 'workday.agentId = user.id')
       .where('user.isAgent = :isAgent', { isAgent: true })
       .andWhere('user.status = :status', { status: 'active' })
       .andWhere('user.agentState = :agentState', { agentState: 'available' })
       .andWhere('user.currentChatsCount < user.maxConcurrentChats')
       .andWhere('uc.campaignId = :campaignId', { campaignId })
+      // Validar jornada activa
+      .andWhere('workday.workDate = :today', { today: todayStr })
+      .andWhere('workday.clockInTime IS NOT NULL')
+      .andWhere('workday.clockOutTime IS NULL')
       .orderBy('user.currentChatsCount', 'ASC')
       .getOne();
 
     if (agent) {
-      this.logger.log(`✅ Agente encontrado (user_campaigns): ${agent.fullName}`);
+      this.logger.log(`✅ Agente encontrado (user_campaigns con jornada): ${agent.fullName}`);
       return agent;
     }
 
-    this.logger.warn(`⚠️ No hay agentes disponibles para campaña ${campaignId}`);
+    this.logger.warn(`⚠️ No hay agentes disponibles CON JORNADA ACTIVA para campaña ${campaignId}`);
     return null;
   }
 

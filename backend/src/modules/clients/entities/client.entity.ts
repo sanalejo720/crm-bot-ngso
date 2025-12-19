@@ -114,6 +114,21 @@ export class Client {
   @Column({ length: 50, default: 'pending', nullable: true })
   collectionStatus: string;
 
+  @Column({ length: 50, nullable: true })
+  paymentMethod: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  paymentDate: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  promiseDate: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastContactDate: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  callbackDate: Date;
+
   @Column({ length: 20, nullable: true })
   priority: string;
 

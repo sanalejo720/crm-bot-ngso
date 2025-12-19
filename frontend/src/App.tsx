@@ -33,6 +33,8 @@ import DebtorsPage from './pages/DebtorsPage'
 import EvidencesPage from './pages/EvidencesPage'
 import PaymentPromisesPage from './pages/PaymentPromisesPage'
 import AttendanceReportsPage from './pages/AttendanceReportsPage'
+import MassCampaignSender from './pages/MassCampaignSender'
+import MassCampaignStats from './pages/MassCampaignStats'
 
 function App() {
   return (
@@ -89,6 +91,12 @@ function App() {
           <Route path="/backups" element={<BackupsPage />} />
           <Route path="/unidentified-clients" element={<UnidentifiedClientsPage />} />
           <Route path="/attendance" element={<AttendanceReportsPage />} />
+        </Route>
+
+        {/* Rutas solo para Administradores y Super Admin */}
+        <Route element={<RoleGuard allowedRoles={['Administrador', 'Super Admin']} />}>
+          <Route path="/mass-campaigns" element={<MassCampaignSender />} />
+          <Route path="/mass-campaigns/stats" element={<MassCampaignStats />} />
         </Route>
 
         {/* Rutas accesibles para todos los usuarios autenticados */}

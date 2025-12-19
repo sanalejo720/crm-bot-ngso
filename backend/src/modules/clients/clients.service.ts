@@ -6,6 +6,7 @@ import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PazYSalvoService } from './paz-y-salvo.service';
+import { PaymentRecord, PaymentSource, PaymentStatus } from '../metrics/entities/payment-record.entity';
 
 @Injectable()
 export class ClientsService {
@@ -14,6 +15,8 @@ export class ClientsService {
   constructor(
     @InjectRepository(Client)
     private clientRepository: Repository<Client>,
+    @InjectRepository(PaymentRecord)
+    private paymentRecordRepository: Repository<PaymentRecord>,
     private eventEmitter: EventEmitter2,
     @Inject(forwardRef(() => PazYSalvoService))
     private pazYSalvoService: PazYSalvoService,
@@ -161,6 +164,35 @@ export class ClientsService {
         this.logger.log(`📜 Paz y Salvo creado automáticamente para ${client.fullName}`);
       } catch (error: any) {
         this.logger.error(`Error creando paz y salvo: ${error.message}`);
+      }
+
+      // Registrar el pago en la tabla de métricas
+      try {
+        const paymentAmount = Number(updateClientDto.lastPaymentAmount || client.promisePaymentAmount || client.debtAmount || 0);
+        const originalDebt = Number(client.originalDebtAmount || client.debtAmount || 0);
+        const remainingDebt = Math.max(0, Number(client.debtAmount || 0) - paymentAmount);
+        const recoveryPercentage = originalDebt > 0 ? (paymentAmount / originalDebt) * 100 : 100;
+
+        const paymentRecord = this.paymentRecordRepository.create({
+          clientId: client.id,
+          agentId: client.assignedTo || null,
+          campaignId: client.campaignId || null,
+          amount: paymentAmount,
+          originalDebt,
+          remainingDebt,
+          recoveryPercentage: Math.min(recoveryPercentage, 100),
+          paymentDate: updateClientDto.lastPaymentDate || new Date(),
+          source: PaymentSource.MANUAL,
+          status: PaymentStatus.CONFIRMED,
+          metadata: {
+            documentNumber: client.documentNumber,
+          },
+        });
+
+        await this.paymentRecordRepository.save(paymentRecord);
+        this.logger.log(`💰 Pago registrado: $${paymentAmount} de ${client.fullName} (${recoveryPercentage.toFixed(2)}% recuperado)`);
+      } catch (error: any) {
+        this.logger.error(`Error registrando pago: ${error.message}`);
       }
     }
 

@@ -16,10 +16,13 @@ import { ChatsExportService } from './chats-export.service';
 import { AssignmentService } from './services/assignment.service';
 import { ReturnToBotService } from './services/return-to-bot.service';
 import { TransferService } from './services/transfer.service';
+import { ChatResolutionService } from './services/chat-resolution.service';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { UpdateChatDto } from './dto/update-chat.dto';
 import { AssignChatDto, TransferChatDto } from './dto/assign-chat.dto';
 import { ReturnToBotDto } from './dto/return-to-bot.dto';
+import { ResolveChatDto } from './dto/resolve-chat.dto';
+import { CreateManualChatDto } from './dto/create-manual-chat.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
@@ -37,6 +40,7 @@ export class ChatsController {
     private readonly assignmentService: AssignmentService,
     private readonly returnToBotService: ReturnToBotService,
     private readonly transferService: TransferService,
+    private readonly chatResolutionService: ChatResolutionService,
   ) {}
 
   @Post()
@@ -54,12 +58,18 @@ export class ChatsController {
     @Query('campaignId') campaignId?: string,
     @Query('assignedAgentId') assignedAgentId?: string,
     @Query('whatsappNumberId') whatsappNumberId?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.chatsService.findAll({
       status,
       campaignId,
       assignedAgentId,
       whatsappNumberId,
+      search,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
     });
   }
 
@@ -210,6 +220,22 @@ export class ChatsController {
     };
   }
 
+  @Patch(':id/transfer-campaign')
+  @ApiOperation({ summary: 'Transferir chat a otra campaña' })
+  @RequirePermissions({ module: 'chats', action: 'update' })
+  async transferToCampaign(
+    @Param('id') id: string,
+    @Body() body: { campaignId: string },
+    @CurrentUser('id') userId: string,
+  ) {
+    const chat = await this.chatsService.transferToCampaign(id, body.campaignId, userId);
+    return {
+      success: true,
+      data: chat,
+      message: 'Chat transferido a otra campaña exitosamente',
+    };
+  }
+
   @Post(':id/close')
   @ApiOperation({ summary: 'Cerrar chat' })
   @RequirePermissions({ module: 'chats', action: 'update' })
@@ -218,10 +244,57 @@ export class ChatsController {
   }
 
   @Post(':id/resolve')
-  @ApiOperation({ summary: 'Resolver chat' })
+  @ApiOperation({ summary: 'Resolver chat con resultado de gestión' })
   @RequirePermissions({ module: 'chats', action: 'update' })
-  resolve(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.chatsService.resolve(id, userId);
+  async resolve(
+    @Param('id') id: string,
+    @Body() resolveDto: ResolveChatDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    const chat = await this.chatResolutionService.resolveChat(id, resolveDto, userId);
+    return {
+      success: true,
+      data: chat,
+      message: 'Chat resuelto exitosamente',
+    };
+  }
+
+  @Get(':id/resolution-stats')
+  @ApiOperation({ summary: 'Obtener estadísticas de resolución de un agente' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async getResolutionStats(
+    @Param('id') agentId: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    const stats = await this.chatResolutionService.getResolutionStatsByAgent(
+      agentId,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+    );
+    return {
+      success: true,
+      data: stats,
+    };
+  }
+
+  @Get('resolution-stats/global')
+  @ApiOperation({ summary: 'Obtener estadísticas de resolución global' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async getGlobalResolutionStats(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    const stats = await this.chatResolutionService.getGlobalResolutionStats(
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined,
+      campaignId,
+    );
+    return {
+      success: true,
+      data: stats,
+    };
   }
 
   @Get(':id/stats')
@@ -262,5 +335,80 @@ export class ChatsController {
     @Body() body: { contactName?: string; contactPhone?: string },
   ) {
     return this.chatsService.updateContactInfo(id, body);
+  }
+
+  @Post('manual')
+  @ApiOperation({ summary: 'Crear chat manual (agente inicia conversación con un número)' })
+  @RequirePermissions({ module: 'chats', action: 'create' })
+  async createManualChat(
+    @Body() createManualChatDto: CreateManualChatDto,
+    @CurrentUser('id') agentId: string,
+    @CurrentUser('role') userRole: { name: string },
+  ) {
+    // Mapear nombre de rol a formato esperado por el servicio
+    const roleMap: { [key: string]: string } = {
+      'Super Admin': 'superadmin',
+      'Administrador': 'admin',
+      'Supervisor': 'supervisor',
+      'Agente': 'agent',
+    };
+    const creatorRole = roleMap[userRole.name] || 'agent';
+
+    const result = await this.chatsService.createManualChat(
+      createManualChatDto.phone,
+      agentId,
+      createManualChatDto.contactName,
+      createManualChatDto.campaignId,
+      createManualChatDto.assignToAgentId,
+      creatorRole,
+      createManualChatDto.templateSid,
+      createManualChatDto.templateVariables,
+    );
+
+    return {
+      success: true,
+      message: result.templateSent 
+        ? 'Chat creado y plantilla enviada exitosamente.' 
+        : result.isNew 
+          ? 'Chat creado exitosamente. Puede enviar un mensaje inicial.' 
+          : 'Chat existente recuperado.',
+      data: {
+        chat: result.chat,
+        isNew: result.isNew,
+        canSendMessage: result.canSendMessage,
+        waitingResponse: result.waitingResponse,
+        previousAgent: result.previousAgent,
+        ticketHistory: result.ticketHistory,
+        templateSent: result.templateSent,
+        info: result.waitingResponse 
+          ? 'Límite: 1 mensaje por día hasta que el cliente responda.' 
+          : undefined,
+      },
+    };
+  }
+
+  @Get('client-history/:phone')
+  @ApiOperation({ summary: 'Obtener historial de un cliente por teléfono' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async getClientHistory(
+    @Param('phone') phone: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    const history = await this.chatsService.getClientHistory(phone, campaignId);
+    return {
+      success: true,
+      data: history,
+    };
+  }
+
+  @Get(':id/can-send')
+  @ApiOperation({ summary: 'Verificar si se puede enviar mensaje en chat manual' })
+  @RequirePermissions({ module: 'chats', action: 'read' })
+  async canSendMessage(@Param('id') id: string) {
+    const result = await this.chatsService.canSendManualMessage(id);
+    return {
+      success: true,
+      data: result,
+    };
   }
 }

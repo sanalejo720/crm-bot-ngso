@@ -25,8 +25,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  SelectChangeEvent,
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material';
 import {
   CloudUpload as UploadIcon,
   Close as CloseIcon,
@@ -263,10 +263,11 @@ export const UploadDebtorsDialog: React.FC<Props> = ({ open, onClose, onSuccess 
   };
 
   const downloadTemplate = () => {
-    const template = `nombre,tipo_doc,documento,telefono,correo,direccion,deuda,deuda_inicial,mora,ultimo_pago,promesa,estado,notas,producto,credito,vencimiento,compania,campana
-Juan Perez,CC,1234567890,3001234567,juan@example.com,Calle 123 #45-67,1500000,2000000,30,2024-10-15,2024-12-01,active,Cliente con buen historial,Tarjeta de Crédito,TC-001,2024-11-30,Banco XYZ,CAMP-001`;
+    const template = `Solicitud No,Nombre completo,Número de Identificación,Tipo de Contacto,Nombre Asesor,CARTERA,Telefono
+SOL-001,Juan Perez García,1234567890,Titular,María Asesora,CARTERA-A,3001234567
+SOL-002,María López Rodríguez,9876543210,Codeudor,Pedro Cobrador,CARTERA-B,3109876543`;
 
-    const blob = new Blob([template], { type: 'text/csv' });
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -302,7 +303,11 @@ Juan Perez,CC,1234567890,3001234567,juan@example.com,Calle 123 #45-67,1500000,20
           <Alert severity="info">
             Sube un archivo CSV o Excel (.xlsx, .xls) con la información de los deudores.
             <br />
-            <strong>Columnas requeridas:</strong> nombre, tipo_doc, documento
+            <strong>Columnas requeridas:</strong> Nombre completo, Número de Identificación
+            <br />
+            <strong>Columnas opcionales:</strong> Solicitud No, Tipo de Contacto, Nombre Asesor, CARTERA, Teléfono
+            <br />
+            <em>Si "Nombre Asesor" coincide con un agente registrado, el deudor se asignará automáticamente.</em>
           </Alert>
 
           {/* Selectores de Campaña y WhatsApp */}

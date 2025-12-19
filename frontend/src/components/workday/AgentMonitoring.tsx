@@ -112,18 +112,24 @@ const AgentMonitoring: React.FC = () => {
     }
   };
 
-  const formatTime = (minutes: number): string => {
+  const formatTime = (minutes: number | null | undefined): string => {
+    if (minutes === null || minutes === undefined || isNaN(minutes)) {
+      return '00:00:00';
+    }
     const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    const mins = Math.floor(minutes % 60);
     return `${hours}h ${mins}m`;
   };
 
-  const formatDateTime = (dateString: string): string => {
+  const formatDateTime = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'No disponible';
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'No disponible';
     return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   };
 
-  const getStateColor = (state: string): 'success' | 'info' | 'warning' | 'default' => {
+  const getStateColor = (state: string | null | undefined): 'success' | 'info' | 'warning' | 'default' => {
+    if (!state) return 'default';
     switch (state) {
       case 'working': return 'success';
       case 'available': return 'info';
@@ -132,12 +138,13 @@ const AgentMonitoring: React.FC = () => {
     }
   };
 
-  const getStateLabel = (state: string): string => {
+  const getStateLabel = (state: string | null | undefined): string => {
+    if (!state) return 'Sin sesión';
     switch (state) {
       case 'working': return 'Trabajando';
       case 'available': return 'Disponible';
       case 'on_pause': return 'En Pausa';
-      default: return 'Desconocido';
+      default: return 'Sin sesión';
     }
   };
 
@@ -288,19 +295,19 @@ const AgentMonitoring: React.FC = () => {
                       )}
                     </TableCell>
                     <TableCell>
-                      {agent.workday ? formatDateTime(agent.workday.clockInTime) : '-'}
+                      {agent.workday?.clockInTime ? formatDateTime(agent.workday.clockInTime) : 'No disponible'}
                     </TableCell>
                     <TableCell>
-                      {agent.workday ? formatTime(agent.workday.totalWorkMinutes) : '-'}
+                      {agent.workday?.totalWorkMinutes != null ? formatTime(agent.workday.totalWorkMinutes) : '00:00:00'}
                     </TableCell>
                     <TableCell>
                       <Typography color="success.main">
-                        {agent.workday ? formatTime(agent.workday.totalProductiveMinutes) : '-'}
+                        {agent.workday?.totalProductiveMinutes != null ? formatTime(agent.workday.totalProductiveMinutes) : '00:00:00'}
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography color="warning.main">
-                        {agent.workday ? formatTime(agent.workday.totalPauseMinutes) : '-'}
+                        {agent.workday?.totalPauseMinutes != null ? formatTime(agent.workday.totalPauseMinutes) : '00:00:00'}
                       </Typography>
                     </TableCell>
                     <TableCell>

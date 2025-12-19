@@ -1,0 +1,51 @@
+﻿--- a/whatsapp.service.ts
++++ b/whatsapp.service.ts
+@@ -1,6 +1,7 @@
+ import {
+   Injectable,
++  OnModuleInit,
+   NotFoundException,
+   BadRequestException,
+   Logger,
+@@ -17,7 +18,7 @@ import { TwilioService } from './providers/twilio.service';
+ import { MessageType } from '../messages/entities/message.entity';
+
+ @Injectable()
+-export class WhatsappService {
++export class WhatsappService implements OnModuleInit {
+   private readonly logger = new Logger(WhatsappService.name);
+
+   constructor(
+@@ -29,6 +30,33 @@ export class WhatsappService {
+     private eventEmitter: EventEmitter2,
+   ) {}
+
++  /**
++   * Inicializar clientes de Twilio al arrancar el modulo
++   * Esto asegura que las credenciales esten disponibles para descargar media
++   */
++  async onModuleInit() {
++    this.logger.log(' Inicializando WhatsappService...');
++    await this.initializeTwilioCredentials();
++  }
++
++  private async initializeTwilioCredentials() {
++    try {
++      const twilioNumbers = await this.whatsappNumberRepository.find({
++        where: { provider: WhatsappProvider.TWILIO, isActive: true },
++      });
++
++      this.logger.log(` Encontrados ${twilioNumbers.length} numeros Twilio activos`);
++
++      for (const num of twilioNumbers) {
++        this.twilioService.initializeClient(num.id, num.twilioAccountSid, num.twilioAuthToken);
++        this.logger.log(` Credenciales Twilio inicializadas para: ${num.phoneNumber}`);
++      }
++    } catch (error) {
++      this.logger.error(` Error inicializando credenciales Twilio: ${error.message}`);
++    }
++  }
++
+   /**
+    * Obtener numero de WhatsApp por ID
+    */

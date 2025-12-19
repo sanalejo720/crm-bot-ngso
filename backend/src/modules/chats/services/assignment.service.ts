@@ -114,15 +114,25 @@ export class AssignmentService {
 
   /**
    * Encontrar un agente disponible automáticamente
-   * (para uso futuro - asignación automática inteligente)
+   * IMPORTANTE: Solo considera agentes que han iniciado jornada laboral hoy
    */
   async findAvailableAgent(campaignId?: string): Promise<User | null> {
+    // Obtener fecha de hoy
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
     const query = this.userRepository
       .createQueryBuilder('user')
+      .innerJoin('agent_workdays', 'workday', 'workday.agentId = user.id')
       .where('user.isAgent = :isAgent', { isAgent: true })
       .andWhere('user.status = :status', { status: 'active' })
       .andWhere('user.agentState = :agentState', { agentState: 'available' })
-      .andWhere('user.currentChatsCount < user.maxConcurrentChats');
+      .andWhere('user.currentChatsCount < user.maxConcurrentChats')
+      // Validar jornada activa
+      .andWhere('workday.workDate = :today', { today: todayStr })
+      .andWhere('workday.clockInTime IS NOT NULL')
+      .andWhere('workday.clockOutTime IS NULL');
 
     if (campaignId) {
       query.andWhere('user.campaignId = :campaignId', { campaignId });

@@ -196,18 +196,36 @@ export class UsersService {
 
   /**
    * Incrementar contador de chats
+   * Cambia el estado del agente a 'busy' si alcanza el máximo de chats
    */
   async incrementChatCount(id: string): Promise<void> {
     await this.userRepository.increment({ id }, 'currentChatsCount', 1);
+    
+    // Verificar si el agente alcanzó el máximo de chats
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (user && user.currentChatsCount >= user.maxConcurrentChats) {
+      // Cambiar estado a ocupado si estaba disponible
+      if (user.agentState === AgentState.AVAILABLE) {
+        await this.userRepository.update(id, { agentState: AgentState.BUSY });
+        console.log(`📵 Agente ${user.fullName} cambió a OCUPADO (${user.currentChatsCount}/${user.maxConcurrentChats} chats)`);
+      }
+    }
   }
 
   /**
    * Decrementar contador de chats (nunca baja de 0)
+   * Cambia el estado del agente a 'available' si estaba 'busy' y tiene capacidad
    */
   async decrementChatCount(id: string): Promise<void> {
     const user = await this.userRepository.findOne({ where: { id } });
     if (user && user.currentChatsCount > 0) {
       await this.userRepository.decrement({ id }, 'currentChatsCount', 1);
+      
+      // Si estaba ocupado y ahora tiene capacidad, cambiar a disponible
+      if (user.agentState === AgentState.BUSY && (user.currentChatsCount - 1) < user.maxConcurrentChats) {
+        await this.userRepository.update(id, { agentState: AgentState.AVAILABLE });
+        console.log(`✅ Agente ${user.fullName} cambió a DISPONIBLE (${user.currentChatsCount - 1}/${user.maxConcurrentChats} chats)`);
+      }
     } else if (user) {
       // Si está en 0 o negativo, forzar a 0
       user.currentChatsCount = 0;

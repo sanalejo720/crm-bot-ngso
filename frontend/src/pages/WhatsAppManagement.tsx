@@ -26,7 +26,14 @@ import {
   Alert,
   CircularProgress,
   Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  OutlinedInput,
+  Checkbox,
+  ListItemText,
 } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material';
 import {
   Add as AddIcon,
   QrCode as QrCodeIcon,
@@ -42,6 +49,12 @@ import api from '../services/api';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
 
+interface NumberCampaign {
+  id: string;
+  campaignId: string;
+  campaign?: { id: string; name: string };
+}
+
 interface WhatsAppNumber {
   id: string;
   phoneNumber: string;
@@ -51,6 +64,7 @@ interface WhatsAppNumber {
   campaignId?: string;
   botFlowId?: string;
   campaign?: { id: string; name: string };
+  numberCampaigns?: NumberCampaign[];
   lastError?: string;
   isActive: boolean;
   createdAt: string;
@@ -355,12 +369,21 @@ const WhatsAppManagement: React.FC = () => {
     }
   };
 
-  const handleAssignCampaign = async (numberId: string, campaignId: string) => {
+  // Helper para obtener las campañas asignadas a un número
+  const getNumberCampaignIds = (number: WhatsAppNumber): string[] => {
+    if (number.numberCampaigns && number.numberCampaigns.length > 0) {
+      return number.numberCampaigns.map(nc => nc.campaignId);
+    }
+    // Fallback al campo legacy
+    return number.campaignId ? [number.campaignId] : [];
+  };
+
+  const handleAssignCampaigns = async (numberId: string, campaignIds: string[]) => {
     try {
-      await api.patch(`/whatsapp-numbers/${numberId}/campaign/${campaignId}`);
+      await api.patch(`/whatsapp-numbers/${numberId}/campaigns`, { campaignIds });
       loadNumbers();
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Error al asignar campaña');
+      alert(error.response?.data?.message || 'Error al asignar campañas');
     }
   };
 
@@ -467,20 +490,30 @@ const WhatsAppManagement: React.FC = () => {
                       </TableCell>
                       <TableCell>{getStatusChip(number.status)}</TableCell>
                       <TableCell>
-                        <TextField
-                          select
-                          size="small"
-                          value={number.campaignId || ''}
-                          onChange={(e) => handleAssignCampaign(number.id, e.target.value)}
-                          sx={{ minWidth: 150 }}
-                        >
-                          <MenuItem value="">Sin asignar</MenuItem>
-                          {campaigns.map((campaign) => (
-                            <MenuItem key={campaign.id} value={campaign.id}>
-                              {campaign.name}
-                            </MenuItem>
-                          ))}
-                        </TextField>
+                        <FormControl size="small" sx={{ minWidth: 180 }}>
+                          <InputLabel id={`campaign-select-label-${number.id}`}>Campañas</InputLabel>
+                          <Select<string[]>
+                            labelId={`campaign-select-label-${number.id}`}
+                            multiple
+                            value={getNumberCampaignIds(number)}
+                            onChange={(e: SelectChangeEvent<string[]>) => {
+                              const value = e.target.value;
+                              handleAssignCampaigns(number.id, typeof value === 'string' ? value.split(',') : value);
+                            }}
+                            input={<OutlinedInput label="Campañas" />}
+                            renderValue={(selected) => {
+                              const selectedCampaigns = campaigns.filter(c => selected.includes(c.id));
+                              return selectedCampaigns.map(c => c.name).join(', ') || 'Sin asignar';
+                            }}
+                          >
+                            {campaigns.map((campaign) => (
+                              <MenuItem key={campaign.id} value={campaign.id}>
+                                <Checkbox checked={getNumberCampaignIds(number).includes(campaign.id)} />
+                                <ListItemText primary={campaign.name} />
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
                       </TableCell>
                       <TableCell align="right">
                         {number.provider === 'wppconnect' ? (

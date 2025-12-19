@@ -121,10 +121,18 @@ export class WhatsappNumbersController {
 
   @Patch(':id/campaign/:campaignId')
   @RequirePermissions({ module: 'whatsapp', action: 'update' })
-  @ApiOperation({ summary: 'Asignar número a campaña' })
+  @ApiOperation({ summary: 'Asignar número a campaña (legacy)' })
   @ApiResponse({ status: 200, description: 'Número asignado a campaña' })
   assignToCampaign(@Param('id') id: string, @Param('campaignId') campaignId: string) {
     return this.whatsappNumbersService.assignToCampaign(id, campaignId);
+  }
+
+  @Patch(':id/campaigns')
+  @RequirePermissions({ module: 'whatsapp', action: 'update' })
+  @ApiOperation({ summary: 'Asignar número a múltiples campañas' })
+  @ApiResponse({ status: 200, description: 'Número asignado a campañas' })
+  assignToCampaigns(@Param('id') id: string, @Body() body: { campaignIds: string[] }) {
+    return this.whatsappNumbersService.assignToCampaigns(id, body.campaignIds || []);
   }
 
   @Delete(':id')

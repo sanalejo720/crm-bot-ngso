@@ -17,6 +17,31 @@ export class UpdateClientDto extends PartialType(CreateClientDto) {
   @IsString()
   name?: string;
 
+  @ApiPropertyOptional({ example: '3001234567' })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({ example: 'juan@example.com' })
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiPropertyOptional({ example: 'Calle 123 #45-67' })
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @ApiPropertyOptional({ example: 'CC' })
+  @IsOptional()
+  @IsString()
+  documentType?: string;
+
+  @ApiPropertyOptional({ example: '1234567890' })
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
   @ApiPropertyOptional({ example: 5000000 })
   @IsOptional()
   @IsNumber()

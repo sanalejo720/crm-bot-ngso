@@ -37,8 +37,10 @@ export const fetchMyChats = createAsyncThunk(
     try {
       const response = await apiService.get('/chats/my-chats', { params: filters });
       const result = response.data || response;
-      // Backend devuelve { success, data, timestamp }
-      return result.data || result;
+      // Backend devuelve { success, data: { data: Chat[], pagination }, timestamp }
+      const chatsData = result.data || result;
+      // Si es paginado (tiene data dentro), extraer el array
+      return Array.isArray(chatsData) ? chatsData : (chatsData.data || []);
     } catch (error: any) {
       return rejectWithValue(error.response?.data?.message || 'Error obteniendo chats');
     }
@@ -134,6 +136,20 @@ const chatsSlice = createSlice({
         chat.unreadCount = 0;
       }
     },
+    updateChatDebtor: (state, action: PayloadAction<{ chatId: string; debtor: any }>) => {
+      const { chatId, debtor } = action.payload;
+      const chat = state.items.find(c => c.id === chatId);
+      if (chat) {
+        chat.debtor = debtor;
+      }
+      // Si es el chat seleccionado, actualizar también
+      if (state.selectedChat?.id === chatId) {
+        state.selectedChat = {
+          ...state.selectedChat,
+          debtor,
+        };
+      }
+    },
     setFilters: (state, action: PayloadAction<ChatsState['filters']>) => {
       state.filters = action.payload;
     },
@@ -193,6 +209,7 @@ export const {
   incrementUnreadCount,
    applyMessageUpdate,
   resetUnreadCount,
+  updateChatDebtor,
   setFilters,
   clearError,
 } = chatsSlice.actions;

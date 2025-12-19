@@ -1,10 +1,10 @@
 // Agent Workspace - NGS&O CRM Gestión
 // Desarrollado por: Alejandro Sandoval - AS Software
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Box } from '@mui/material';
 import { useAppDispatch, useAppSelector } from '../hooks/redux';
-import { fetchMyChats, setSelectedChat } from '../store/slices/chatsSlice';
+import { fetchMyChats, setSelectedChat, updateChatDebtor } from '../store/slices/chatsSlice';
 import { socketService } from '../services/socket.service';
 import { useNotifications } from '../hooks/useNotifications';
 import ModernSidebar from '../components/layout/ModernSidebar';
@@ -13,12 +13,52 @@ import ChatList from '../components/chat/ChatList';
 import ChatMessages from '../components/chat/ChatMessages';
 import DebtorPanel from '../components/chat/DebtorPanel';
 import WorkdayControls from '../components/workday/WorkdayControls';
+import WorkdayStartupDialog from '../components/workday/WorkdayStartupDialog';
+import api from '../services/api';
 
 export default function AgentWorkspace() {
   const dispatch = useAppDispatch();
   const [sidebarOpen] = useState(true);
   const { user } = useAppSelector((state) => state.auth);
   const { selectedChat, items: myChats } = useAppSelector((state) => state.chats);
+  const [showWorkdayDialog, setShowWorkdayDialog] = useState(false);
+  const [checkingWorkday, setCheckingWorkday] = useState(true);
+
+  // Verificar si tiene jornada activa al cargar
+  const checkCurrentWorkday = useCallback(async () => {
+    try {
+      setCheckingWorkday(true);
+      const response = await api.get('/workday/current');
+      const workday = response.data?.data;
+      
+      // Si no hay jornada o no tiene clockInTime, mostrar dialog
+      if (!workday || !workday.clockInTime) {
+        setShowWorkdayDialog(true);
+      }
+    } catch (error: any) {
+      // Si es 404 o no hay jornada, mostrar dialog
+      if (error.response?.status === 404 || !error.response?.data?.data) {
+        setShowWorkdayDialog(true);
+      }
+    } finally {
+      setCheckingWorkday(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Solo verificar jornada si el usuario es agente
+    if (user?.isAgent) {
+      checkCurrentWorkday();
+    } else {
+      setCheckingWorkday(false);
+    }
+  }, [user, checkCurrentWorkday]);
+
+  const handleWorkdayStarted = () => {
+    setShowWorkdayDialog(false);
+    // Recargar chats después de iniciar jornada
+    dispatch(fetchMyChats({}));
+  };
 
   // ========== HOOK DE NOTIFICACIONES ==========
   useNotifications({
@@ -65,6 +105,7 @@ export default function AgentWorkspace() {
 
     let unsubscribeAssigned: (() => void) | undefined;
     let unsubscribeUnassigned: (() => void) | undefined;
+    let unsubscribeDebtorLinked: (() => void) | undefined;
 
     // Configurar WebSocket
     if (user) {
@@ -82,6 +123,13 @@ export default function AgentWorkspace() {
           console.log('🤖 Chat transferido al bot', data);
           // Recargar la lista de chats para remover el chat desasignado
           dispatch(fetchMyChats({}));
+        });
+
+        // Registrar listener para deudor vinculado al chat
+        unsubscribeDebtorLinked = socketService.onDebtorLinked((data) => {
+          console.log('👤 Deudor vinculado al chat:', data);
+          // Actualizar el chat con la información del deudor
+          dispatch(updateChatDebtor({ chatId: data.chatId, debtor: data.debtor }));
         });
 
         // Conectar si no está conectado
@@ -114,11 +162,20 @@ export default function AgentWorkspace() {
       if (unsubscribeUnassigned) {
         unsubscribeUnassigned();
       }
+      if (unsubscribeDebtorLinked) {
+        unsubscribeDebtorLinked();
+      }
     };
   }, [dispatch, user]);
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#f7fafc' }}>
+      {/* Dialog de inicio de jornada obligatorio */}
+      <WorkdayStartupDialog 
+        open={showWorkdayDialog && !checkingWorkday} 
+        onWorkdayStarted={handleWorkdayStarted} 
+      />
+
       <ModernSidebar open={sidebarOpen} />
       
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>

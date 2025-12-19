@@ -169,6 +169,17 @@ export class Chat {
   @Column({ name: 'bot_restart_count', default: 0 })
   botRestartCount: number;
 
+  // ============ CAMPOS DE RESOLUCIÓN ============
+
+  @Column({ name: 'resolution_type', nullable: true })
+  resolutionType?: string; // paid, promise, no_agreement, callback
+
+  @Column({ name: 'resolution_notes', type: 'text', nullable: true })
+  resolutionNotes?: string;
+
+  @Column({ name: 'resolution_metadata', type: 'jsonb', nullable: true })
+  resolutionMetadata?: Record<string, any>;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -7,21 +7,27 @@ import { Chat } from './entities/chat.entity';
 import { ChatStateTransition } from './entities/chat-state-transition.entity';
 import { Message } from '../messages/entities/message.entity';
 import { User } from '../users/entities/user.entity';
+import { UserCampaign } from '../users/entities/user-campaign.entity';
 import { Debtor } from '../debtors/entities/debtor.entity';
+import { Client } from '../clients/entities/client.entity';
+import { PaymentRecord } from '../metrics/entities/payment-record.entity';
 import { UsersModule } from '../users/users.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { EvidencesModule } from '../evidences/evidences.module';
+import { MessagesModule } from '../messages/messages.module';
 import { EmailService } from '../../common/services/email.service';
 import { ChatStateService } from './services/chat-state.service';
 import { AssignmentService } from './services/assignment.service';
 import { ReturnToBotService } from './services/return-to-bot.service';
 import { TransferService } from './services/transfer.service';
+import { ChatResolutionService } from './services/chat-resolution.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Chat, ChatStateTransition, Message, User, Debtor]),
+    TypeOrmModule.forFeature([Chat, ChatStateTransition, Message, User, UserCampaign, Debtor, Client, PaymentRecord]),
     UsersModule,
     forwardRef(() => WhatsappModule),
+    forwardRef(() => MessagesModule),
     EvidencesModule,
   ],
   controllers: [ChatsController],
@@ -33,6 +39,7 @@ import { TransferService } from './services/transfer.service';
     AssignmentService,
     ReturnToBotService,
     TransferService,
+    ChatResolutionService,
   ],
   exports: [
     ChatsService,
@@ -41,6 +48,7 @@ import { TransferService } from './services/transfer.service';
     AssignmentService,
     ReturnToBotService,
     TransferService,
+    ChatResolutionService,
   ],
 })
 export class ChatsModule {}

@@ -1,7 +1,7 @@
 // Modern Agent Dashboard - Inspired by Greeva Template
 // Beautiful dashboard with gradient cards and animations
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -23,6 +23,7 @@ import StatsCard from '../components/common/StatsCard';
 import ModernSidebar from '../components/layout/ModernSidebar';
 import AppHeader from '../components/layout/AppHeader';
 import WorkdayControls from '../components/workday/WorkdayControls';
+import WorkdayStartupDialog from '../components/workday/WorkdayStartupDialog';
 
 interface AgentStats {
   activeChats: number;
@@ -53,6 +54,56 @@ export default function ModernAgentDashboard() {
     completionRate: 0,
   });
   const [, setLoading] = useState(true);
+  const [showWorkdayDialog, setShowWorkdayDialog] = useState(false);
+  const [checkingWorkday, setCheckingWorkday] = useState(true);
+
+  // Verificar si tiene jornada activa al cargar
+  const checkCurrentWorkday = useCallback(async () => {
+    try {
+      setCheckingWorkday(true);
+      const response = await apiService.get('/workday/current');
+      console.log('🔍 Workday response:', response.data);
+      const workday = response.data?.data;
+      console.log('🔍 Workday data:', workday);
+      console.log('🔍 clockInTime:', workday?.clockInTime);
+      
+      // Si no hay jornada o no tiene clockInTime, mostrar dialog
+      if (!workday || !workday.clockInTime) {
+        console.log('✅ Mostrando dialog de inicio de jornada');
+        setShowWorkdayDialog(true);
+      } else {
+        console.log('❌ Ya tiene jornada activa, no mostrar dialog');
+      }
+    } catch (error: any) {
+      console.log('🔍 Error en workday:', error.response?.status, error.response?.data);
+      // Si es 404 o no hay jornada, mostrar dialog
+      if (error.response?.status === 404 || !error.response?.data?.data) {
+        console.log('✅ Error 404 - Mostrando dialog de inicio de jornada');
+        setShowWorkdayDialog(true);
+      }
+    } finally {
+      setCheckingWorkday(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Solo verificar jornada si el usuario es agente
+    console.log('🔍 User:', user);
+    console.log('🔍 isAgent:', user?.isAgent);
+    console.log('🔍 role:', user?.role?.name);
+    if (user?.isAgent || user?.role?.name === 'Agente') {
+      checkCurrentWorkday();
+    } else {
+      console.log('❌ No es agente, no verificar jornada');
+      setCheckingWorkday(false);
+    }
+  }, [user, checkCurrentWorkday]);
+
+  const handleWorkdayStarted = () => {
+    setShowWorkdayDialog(false);
+    // Recargar stats después de iniciar jornada
+    loadStats();
+  };
 
   const loadStats = async () => {
     try {
@@ -290,6 +341,14 @@ export default function ModernAgentDashboard() {
           </Paper>
         </Box>
       </Box>
+
+      {/* Dialog de inicio de jornada */}
+      {!checkingWorkday && (
+        <WorkdayStartupDialog
+          open={showWorkdayDialog}
+          onWorkdayStarted={handleWorkdayStarted}
+        />
+      )}
     </Box>
   );
 }

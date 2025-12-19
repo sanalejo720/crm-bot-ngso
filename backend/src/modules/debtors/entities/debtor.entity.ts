@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { Campaign } from '../../campaigns/entities/campaign.entity';
 import { WhatsappNumber } from '../../whatsapp/entities/whatsapp-number.entity';
+import { User } from '../../users/entities/user.entity';
 
 export enum DocumentType {
   CC = 'CC', // Cédula de Ciudadanía
@@ -95,6 +96,18 @@ export class Debtor {
 
   @Column({ type: 'uuid', nullable: true })
   whatsappNumberId: string;
+
+  // Agente asignado (cuando el deudor escriba, se le asignará este agente)
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'assignedAgentId' })
+  assignedAgent: User;
+
+  @Column({ type: 'uuid', nullable: true })
+  assignedAgentId: string;
+
+  // Tipo de contacto (Titular, Codeudor, Arrendatario, etc.)
+  @Column({ length: 100, nullable: true })
+  contactType: string;
 
   // Auditoría
   @CreateDateColumn()

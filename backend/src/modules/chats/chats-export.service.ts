@@ -117,12 +117,14 @@ export class ChatsExportService {
   /**
    * Exportar chat a PDF cifrado con contraseña y enviar a supervisores
    * @param skipClose - Si es true, no cierra el chat (usado cuando se llama desde evento chat.closed)
+   * @param skipMessage - Si es true, no envía mensaje de despedida (ya fue enviado)
    */
   async exportChatToPDF(
     chatId: string,
     closureType: 'paid' | 'promise',
     agentId: string,
     skipClose: boolean = false,
+    skipMessage: boolean = false,
   ): Promise<{
     filePath: string;
     fileName: string;
@@ -222,30 +224,34 @@ export class ChatsExportService {
         this.logger.log(`⏭️ Saltando cierre de chat (ya cerrado)`);
       }
 
-      // 11. Enviar mensaje de despedida por WhatsApp
-      const farewellMessage = this.generateFarewellMessage(
-        closureType,
-        ticketNumber,
-        chat.client,
-      );
-      
-      if (chat.whatsappNumberId && this.isValidPhoneNumber(chat.contactPhone)) {
-        try {
-          await this.whatsappService.sendMessage(
-            chat.whatsappNumberId,
-            chat.contactPhone,
-            farewellMessage,
-            MessageType.TEXT,
-          );
-          this.logger.log(`👋 Mensaje de despedida enviado al cliente`);
-        } catch (error) {
-          this.logger.error(`❌ Error enviando mensaje de despedida: ${error.message}`);
-          // No lanzar error para no interrumpir el proceso
+      // 11. Enviar mensaje de despedida por WhatsApp (solo si no se saltó)
+      if (!skipMessage) {
+        const farewellMessage = this.generateFarewellMessage(
+          closureType,
+          ticketNumber,
+          chat.client,
+        );
+        
+        if (chat.whatsappNumberId && this.isValidPhoneNumber(chat.contactPhone)) {
+          try {
+            await this.whatsappService.sendMessage(
+              chat.whatsappNumberId,
+              chat.contactPhone,
+              farewellMessage,
+              MessageType.TEXT,
+            );
+            this.logger.log(`👋 Mensaje de despedida enviado al cliente`);
+          } catch (error) {
+            this.logger.error(`❌ Error enviando mensaje de despedida: ${error.message}`);
+            // No lanzar error para no interrumpir el proceso
+          }
+        } else if (!chat.whatsappNumberId) {
+          this.logger.warn(`⚠️ No se pudo enviar mensaje de despedida: Chat sin whatsappNumberId`);
+        } else {
+          this.logger.warn(`⚠️ No se pudo enviar mensaje de despedida: Número de teléfono inválido (${chat.contactPhone})`);
         }
-      } else if (!chat.whatsappNumberId) {
-        this.logger.warn(`⚠️ No se pudo enviar mensaje de despedida: Chat sin whatsappNumberId`);
       } else {
-        this.logger.warn(`⚠️ No se pudo enviar mensaje de despedida: Número de teléfono inválido (${chat.contactPhone})`);
+        this.logger.log(`⏭️ Saltando mensaje de despedida (ya enviado)`);
       }
 
       return {

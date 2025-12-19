@@ -92,6 +92,10 @@ export class BotNode {
     // TRANSFER_AGENT
     transferReason?: string;
     transferToSkill?: string;
+    
+    // TWILIO CONTENT TEMPLATES
+    contentSid?: string; // SID del Content Template de Twilio (HX...)
+    contentVariables?: Record<string, string>; // Mapeo de variables {{1}} -> "debtor_nombre"
   };
 
   @Column({ nullable: true })

@@ -28,7 +28,7 @@ export class DebtorRowDto {
   phone?: string;
   email?: string;
   address?: string;
-  debtAmount: number;
+  debtAmount?: number;
   initialDebtAmount?: number;
   daysOverdue?: number;
   lastPaymentDate?: string;
@@ -41,4 +41,6 @@ export class DebtorRowDto {
   fechaVencimiento?: string;
   compania?: string;
   campaignId?: string;
+  // Nombre del asesor asignado (se busca en BD)
+  assignedAgentName?: string;
 }

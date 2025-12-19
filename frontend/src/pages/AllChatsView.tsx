@@ -138,8 +138,10 @@ export default function AllChatsView() {
         params: filterStatus !== 'all' ? { status: filterStatus } : {}
       });
       const chatsResult = chatsResponse.data || chatsResponse;
-      const chatsData = chatsResult.data || chatsResult;
-      setChats(Array.isArray(chatsData) ? chatsData : []);
+      // La respuesta puede ser { data: Chat[] } o { data: { data: Chat[], pagination } }
+      const chatsRaw = chatsResult.data || chatsResult;
+      const chatsData = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw.data || []);
+      setChats(chatsData);
       
       // Cargar lista de agentes
       const agentsResponse = await apiService.get('/users', {

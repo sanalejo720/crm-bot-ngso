@@ -20,14 +20,20 @@ import {
   DialogActions,
   Alert,
   Snackbar,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
-import { Send, SmartToy, Person, Download, Receipt, Psychology, Edit, Save, Close } from '@mui/icons-material';
+import { Send, SmartToy, Person, Download, Receipt, Psychology, Edit, Save, Close, CheckCircle, SwapHoriz } from '@mui/icons-material';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
 import { fetchMessages, sendMessage, addMessage } from '../../store/slices/messagesSlice';
 import { socketService } from '../../services/socket.service';
 import type { Chat, Message } from '../../types/index';
 import { formatTimeOnly, getInitials } from '../../utils/helpers';
 import api from '../../services/api';
+import ResolveChatDialog from './ResolveChatDialog';
+import type { ResolutionData } from './ResolveChatDialog';
 
 interface ChatMessagesProps {
   chat: Chat;
@@ -62,13 +68,25 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [transferReason, setTransferReason] = useState('');
 
+  // Estado para transferir a campaña
+  const [transferCampaignDialogOpen, setTransferCampaignDialogOpen] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
+  const [transferringToCampaign, setTransferringToCampaign] = useState(false);
+  const [availableCampaigns, setAvailableCampaigns] = useState<any[]>([]);
+
   // Estado para editar información del contacto
   const [isEditingContact, setIsEditingContact] = useState(false);
   const [editContactName, setEditContactName] = useState('');
   const [savingContact, setSavingContact] = useState(false);
 
+  // Estado para resolver chat
+  const [resolveDialogOpen, setResolveDialogOpen] = useState(false);
+
   // Detectar si el usuario es Supervisor o Super Admin (modo solo lectura)
   const isReadOnly = user?.role?.name === 'Supervisor' || user?.role?.name === 'Super Admin';
+
+  // Detectar si es un chat manual esperando respuesta del cliente
+  const isManualChatWaiting = chat.metadata?.createdManually === true && chat.metadata?.waitingClientResponse === true;
 
   useEffect(() => {
     // Cargar mensajes del chat
@@ -138,6 +156,70 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
   const handleCloseTransferDialog = () => {
     setTransferDialogOpen(false);
     setTransferReason('');
+  };
+
+  // Funciones para transferir a campaña
+  const handleOpenTransferCampaignDialog = async () => {
+    try {
+      const response = await api.get('/campaigns');
+      const campaigns = response.data.data || response.data || [];
+      // Filtrar para no mostrar la campaña actual
+      setAvailableCampaigns(campaigns.filter((c: any) => c.id !== chat.campaign?.id));
+      setTransferCampaignDialogOpen(true);
+    } catch (error) {
+      console.error('Error cargando campañas:', error);
+      setSnackbar({
+        open: true,
+        message: 'Error al cargar las campañas disponibles',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleCloseTransferCampaignDialog = () => {
+    setTransferCampaignDialogOpen(false);
+    setSelectedCampaignId('');
+  };
+
+  const handleTransferToCampaign = async () => {
+    if (!selectedCampaignId) {
+      setSnackbar({
+        open: true,
+        message: '⚠️ Debe seleccionar una campaña',
+        severity: 'error',
+      });
+      return;
+    }
+
+    try {
+      setTransferringToCampaign(true);
+      
+      await api.patch(`/chats/${chat.id}/transfer-campaign`, {
+        campaignId: selectedCampaignId,
+      });
+      
+      setSnackbar({
+        open: true,
+        message: '✅ Chat transferido - Se asignará automáticamente a un agente de la nueva campaña',
+        severity: 'success',
+      });
+      
+      handleCloseTransferCampaignDialog();
+      
+      // Redirigir al workspace después de 1 segundo
+      setTimeout(() => {
+        window.location.href = '/workspace';
+      }, 1000);
+    } catch (error: any) {
+      console.error('Error transfiriendo a campaña:', error);
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Error al transferir el chat',
+        severity: 'error',
+      });
+    } finally {
+      setTransferringToCampaign(false);
+    }
   };
 
   // Funciones para editar información del contacto
@@ -230,6 +312,40 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
       });
     } finally {
       setTransferringToBot(false);
+    }
+  };
+
+  // Handler para resolver el chat con diferentes resultados
+  const handleResolveChat = async (data: ResolutionData) => {
+    try {
+      // Llamar al endpoint de resolución
+      await api.post(`/chats/${chat.id}/resolve`, {
+        resolutionType: data.type,
+        paymentMethod: data.paymentMethod,
+        paymentAmount: data.paymentAmount,
+        promiseDate: data.promiseDate,
+        promiseAmount: data.promiseAmount,
+        promisePaymentMethod: data.promisePaymentMethod,
+        noAgreementReason: data.noAgreementReason,
+        callbackDate: data.callbackDate,
+        callbackNotes: data.callbackNotes,
+        notes: data.notes,
+        sendClosingMessage: data.sendClosingMessage,
+      });
+      
+      setSnackbar({
+        open: true,
+        message: '✅ Chat resuelto exitosamente',
+        severity: 'success',
+      });
+      
+      // Redirigir al workspace después de 1.5 segundos
+      setTimeout(() => {
+        window.location.href = '/workspace';
+      }, 1500);
+    } catch (error: any) {
+      console.error('Error resolviendo chat:', error);
+      throw new Error(error.response?.data?.message || 'Error al resolver el chat');
     }
   };
 
@@ -485,23 +601,76 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            {/* Botón para transferir al bot */}
+            {/* Alerta para chats manuales esperando respuesta */}
+            {isManualChatWaiting && (
+              <Alert severity="warning" sx={{ py: 0, px: 1 }}>
+                Esperando respuesta del cliente
+              </Alert>
+            )}
+
+            {/* Botón para resolver chat */}
             {!isReadOnly && chat.assignedAgent && (
-              <Tooltip title="Transferir este chat de vuelta al bot">
+              <Tooltip title={isManualChatWaiting 
+                ? "No se puede cerrar el chat hasta que el cliente responda" 
+                : "Resolver este chat con un resultado de gestión"
+              }>
+                <span>
+                  <Button
+                    variant="contained"
+                    color="success"
+                    startIcon={<CheckCircle />}
+                    onClick={() => setResolveDialogOpen(true)}
+                    size="small"
+                    disabled={isManualChatWaiting}
+                  >
+                    Resolver Chat
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
+
+            {/* Botón para transferir a otra campaña */}
+            {!isReadOnly && chat.assignedAgent && (
+              <Tooltip title="Transferir este chat a otra campaña">
                 <Button
                   variant="outlined"
-                  color="secondary"
-                  startIcon={<Psychology />}
-                  onClick={handleOpenTransferDialog}
-                  disabled={transferringToBot}
+                  color="primary"
+                  startIcon={<SwapHoriz />}
+                  onClick={handleOpenTransferCampaignDialog}
+                  disabled={transferringToCampaign || isManualChatWaiting}
                   size="small"
                 >
-                  {transferringToBot ? (
+                  {transferringToCampaign ? (
                     <CircularProgress size={20} />
                   ) : (
-                    'Transferir al Bot'
+                    'Transferir Campaña'
                   )}
                 </Button>
+              </Tooltip>
+            )}
+            
+            {/* Botón para transferir al bot */}
+            {!isReadOnly && chat.assignedAgent && (
+              <Tooltip title={isManualChatWaiting 
+                ? "No se puede transferir hasta que el cliente responda" 
+                : "Transferir este chat de vuelta al bot"
+              }>
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    startIcon={<Psychology />}
+                    onClick={handleOpenTransferDialog}
+                    disabled={transferringToBot || isManualChatWaiting}
+                    size="small"
+                  >
+                    {transferringToBot ? (
+                      <CircularProgress size={20} />
+                    ) : (
+                      'Transferir al Bot'
+                    )}
+                  </Button>
+                </span>
               </Tooltip>
             )}
             
@@ -719,18 +888,88 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
                   </Box>
                 ) : message.type === 'document' && message.mediaUrl ? (
                   <Box>
-                    <a 
-                      href={message.mediaUrl} 
-                      download={message.mediaFileName}
-                      style={{ 
-                        color: isMyMessage(message) ? '#075e54' : '#1976d2',
-                        textDecoration: 'none',
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      📄 {message.mediaFileName || 'Documento'}
-                    </a>
-                    {message.content && message.content !== '[DOCUMENT]' && (
+                    {/* Verificar si es PDF */}
+                    {message.mediaMimeType === 'application/pdf' || message.mediaFileName?.toLowerCase().endsWith('.pdf') ? (
+                      <>
+                        {/* Previsualización de PDF */}
+                        <Box sx={{ mb: 2 }}>
+                          <iframe
+                            src={`${import.meta.env.VITE_SOCKET_URL}${message.mediaUrl}`}
+                            style={{
+                              width: '100%',
+                              height: '400px',
+                              border: '1px solid #ddd',
+                              borderRadius: '8px',
+                            }}
+                            title={message.mediaFileName || 'PDF'}
+                          />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          📄 {message.mediaFileName || 'Documento.pdf'}
+                        </Typography>
+                        {/* Botones de acción para PDFs */}
+                        {!isMyMessage(message) && message.senderType === 'client' && (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+                            <Tooltip title="Descargar PDF">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<Download />}
+                                onClick={() => handleDownloadMedia(message)}
+                                sx={{ fontSize: '0.75rem', py: 0.5 }}
+                              >
+                                Descargar
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="Marcar como evidencia de pago">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                startIcon={<Receipt />}
+                                onClick={() => handleMarkAsEvidence(message)}
+                                sx={{ fontSize: '0.75rem', py: 0.5 }}
+                              >
+                                Evidencia
+                              </Button>
+                            </Tooltip>
+                          </Box>
+                        )}
+                      </>
+                    ) : (
+                      /* Otros documentos (Word, Excel, etc.) */
+                      <>
+                        <a 
+                          href={`${import.meta.env.VITE_SOCKET_URL}${message.mediaUrl}`}
+                          download={message.mediaFileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ 
+                            color: isMyMessage(message) ? '#075e54' : '#1976d2',
+                            textDecoration: 'none',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          📄 {message.mediaFileName || 'Documento'}
+                        </a>
+                        {!isMyMessage(message) && message.senderType === 'client' && (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
+                            <Tooltip title="Descargar documento">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<Download />}
+                                onClick={() => handleDownloadMedia(message)}
+                                sx={{ fontSize: '0.75rem', py: 0.5 }}
+                              >
+                                Descargar
+                              </Button>
+                            </Tooltip>
+                          </Box>
+                        )}
+                      </>
+                    )}
+                    {message.content && message.content !== '[DOCUMENT]' && message.content !== '[PDF]' && (
                       <Typography variant="body2" sx={{ mt: 1 }}>
                         {message.content}
                       </Typography>
@@ -890,6 +1129,15 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
         </DialogActions>
       </Dialog>
 
+      {/* Diálogo para resolver chat */}
+      <ResolveChatDialog
+        open={resolveDialogOpen}
+        onClose={() => setResolveDialogOpen(false)}
+        onResolve={handleResolveChat}
+        chat={chat}
+        client={chat.client || null}
+      />
+
       {/* Diálogo para confirmar transferencia al bot */}
       <Dialog 
         open={transferDialogOpen} 
@@ -935,6 +1183,64 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
             startIcon={transferringToBot ? <CircularProgress size={20} /> : <Psychology />}
           >
             {transferringToBot ? 'Transfiriendo...' : 'Confirmar Transferencia'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo para transferir a otra campaña */}
+      <Dialog 
+        open={transferCampaignDialogOpen} 
+        onClose={handleCloseTransferCampaignDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          🔄 Transferir Chat a Otra Campaña
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 2 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Al transferir a otra campaña, el chat quedará en cola de espera para ser asignado a un agente de esa campaña.
+            </Alert>
+
+            <FormControl fullWidth sx={{ mt: 2 }}>
+              <InputLabel id="campaign-select-label">Seleccionar Campaña</InputLabel>
+              <Select
+                labelId="campaign-select-label"
+                value={selectedCampaignId}
+                label="Seleccionar Campaña"
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
+              >
+                {availableCampaigns.map((campaign) => (
+                  <MenuItem key={campaign.id} value={campaign.id}>
+                    {campaign.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {availableCampaigns.length === 0 && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                No hay otras campañas disponibles para transferir.
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={handleCloseTransferCampaignDialog}
+            disabled={transferringToCampaign}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            onClick={handleTransferToCampaign}
+            variant="contained"
+            color="primary"
+            disabled={transferringToCampaign || !selectedCampaignId || availableCampaigns.length === 0}
+            startIcon={transferringToCampaign ? <CircularProgress size={20} /> : <SwapHoriz />}
+          >
+            {transferringToCampaign ? 'Transfiriendo...' : 'Transferir'}
           </Button>
         </DialogActions>
       </Dialog>

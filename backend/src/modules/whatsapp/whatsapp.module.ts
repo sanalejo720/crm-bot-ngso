@@ -6,6 +6,7 @@ import { WhatsappNumbersController } from './whatsapp-numbers.controller';
 import { WhatsappNumbersService } from './whatsapp-numbers.service';
 import { WebhookController } from './webhook.controller';
 import { WhatsappNumber } from './entities/whatsapp-number.entity';
+import { WhatsappNumberCampaign } from './entities/whatsapp-number-campaign.entity';
 import { MetaCloudService } from './providers/meta-cloud.service';
 import { MetaService } from './providers/meta.service';
 import { WppConnectService } from './providers/wppconnect.service';
@@ -16,7 +17,7 @@ import { Message } from '../messages/entities/message.entity';
 import { Chat } from '../chats/entities/chat.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WhatsappNumber, Message, Chat])],
+  imports: [TypeOrmModule.forFeature([WhatsappNumber, WhatsappNumberCampaign, Message, Chat])],
   controllers: [WhatsappController, WhatsappNumbersController, WebhookController],
   providers: [
     WhatsappService, 

@@ -36,6 +36,11 @@ export class CreateChatDto {
   @Min(0)
   priority?: number;
 
+  @ApiPropertyOptional({ example: 'user@example.com', description: 'Email del usuario asignado' })
+  @IsOptional()
+  @IsString()
+  assignedToUserId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   metadata?: Record<string, any>;

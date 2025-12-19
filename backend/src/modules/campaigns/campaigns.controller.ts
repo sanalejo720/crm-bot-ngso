@@ -8,16 +8,24 @@ import {
   Delete,
   Query,
   UseGuards,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
+  Request,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CampaignsService } from './campaigns.service';
 import { CreateCampaignDto } from './dto/create-campaign.dto';
 import { UpdateCampaignDto } from './dto/update-campaign.dto';
+import { CreateMassCampaignDto } from './dto/create-mass-campaign.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CampaignStatus } from './entities/campaign.entity';
+import csvParser from 'csv-parser';
+import { Readable } from 'stream';
 
 @ApiTags('campaigns')
 @Controller('campaigns')
@@ -48,6 +56,21 @@ export class CampaignsController {
   @RequirePermissions({ module: 'campaigns', action: 'read' })
   findActive() {
     return this.campaignsService.findActive();
+  }
+
+  @Get('my-campaigns')
+  @ApiOperation({ summary: 'Obtener campañas asignadas al usuario actual (para agentes)' })
+  async getMyCampaigns(@CurrentUser('id') userId: string) {
+    return this.campaignsService.getUserCampaigns(userId);
+  }
+
+  // ====== ENDPOINTS PARA ENVÍO MASIVO (deben ir ANTES de :id) ======
+
+  @Get('mass/stats')
+  @ApiOperation({ summary: 'Obtener estadísticas de campañas masivas' })
+  @RequirePermissions({ module: 'campaigns', action: 'read' })
+  async getMassCampaignStats() {
+    return this.campaignsService.getMassCampaignStats();
   }
 
   @Get(':id')
@@ -122,5 +145,127 @@ export class CampaignsController {
   @RequirePermissions({ module: 'campaigns', action: 'delete' })
   remove(@Param('id') id: string) {
     return this.campaignsService.remove(id);
+  }
+
+  // ====== MÁS ENDPOINTS PARA ENVÍO MASIVO ======
+
+  @Post('mass/send')
+  @ApiOperation({ summary: 'Enviar campaña masiva de WhatsApp' })
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions({ module: 'campaigns', action: 'create' })
+  async sendMassCampaign(
+    @Body() createMassCampaignDto: CreateMassCampaignDto,
+    @Request() req,
+  ) {
+    // Validar que sea admin o super admin
+    const userRole = req.user?.role?.name;
+    if (userRole !== 'Administrador' && userRole !== 'Super Admin') {
+      throw new BadRequestException('Solo administradores pueden enviar campañas masivas');
+    }
+    return this.campaignsService.sendMassCampaign(createMassCampaignDto, req.user.userId);
+  }
+
+  @Post('mass/validate-csv')
+  @ApiOperation({ summary: 'Validar archivo CSV para envío masivo' })
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions({ module: 'campaigns', action: 'create' })
+  @UseInterceptors(FileInterceptor('file'))
+  async validateCsv(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No se proporcionó archivo CSV');
+    }
+
+    try {
+      const csvData = await this.parseCsv(file.buffer);
+      const validation = await this.campaignsService.validateCsvData(csvData);
+
+      return {
+        valid: validation.valid,
+        errors: validation.errors,
+        recipientCount: validation.recipients.length,
+        preview: validation.recipients.slice(0, 5), // Muestra los primeros 5
+      };
+    } catch (error) {
+      throw new BadRequestException(`Error al procesar CSV: ${error.message}`);
+    }
+  }
+
+  @Post('mass/upload-and-send')
+  @ApiOperation({ summary: 'Subir CSV y enviar campaña masiva (proceso asíncrono)' })
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions({ module: 'campaigns', action: 'create' })
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAndSend(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('campaignName') campaignName: string,
+    @Body('templateSid') templateSid: string,
+    @Body('description') description: string,
+    @Body('messageDelay') messageDelay: string,
+    @Body('batchSize') batchSize: string,
+    @Request() req,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No se proporcionó archivo CSV');
+    }
+
+    if (!campaignName || !templateSid) {
+      throw new BadRequestException('Nombre de campaña y template son requeridos');
+    }
+
+    try {
+      const csvData = await this.parseCsv(file.buffer);
+      const validation = await this.campaignsService.validateCsvData(csvData);
+
+      if (!validation.valid) {
+        return {
+          success: false,
+          errors: validation.errors,
+        };
+      }
+
+      // Iniciar envío en segundo plano (no esperar)
+      const campaignData = {
+        name: campaignName,
+        templateSid,
+        recipients: validation.recipients,
+        description,
+        messageDelay: messageDelay ? parseInt(messageDelay) : 1000,
+        batchSize: batchSize ? parseInt(batchSize) : 10,
+      };
+
+      // No usar await - dejar que se ejecute en background
+      this.campaignsService.sendMassCampaign(campaignData, req.user.userId)
+        .then((result) => {
+          console.log('✅ Campaña masiva completada:', result);
+        })
+        .catch((error) => {
+          console.error('❌ Error en campaña masiva:', error);
+        });
+
+      // Devolver respuesta inmediata
+      return {
+        success: true,
+        message: 'Campaña masiva iniciada en segundo plano',
+        campaignName,
+        templateSid,
+        recipientCount: validation.recipients.length,
+        estimatedDuration: Math.ceil((validation.recipients.length / (batchSize ? parseInt(batchSize) : 10)) * ((messageDelay ? parseInt(messageDelay) : 1000) / 1000)),
+      };
+    } catch (error) {
+      throw new BadRequestException(`Error al procesar campaña: ${error.message}`);
+    }
+  }
+
+  private parseCsv(buffer: Buffer): Promise<any[]> {
+    return new Promise((resolve, reject) => {
+      const results: any[] = [];
+      const stream = Readable.from(buffer.toString());
+
+      stream
+        .pipe(csvParser())
+        .on('data', (data) => results.push(data))
+        .on('end', () => resolve(results))
+        .on('error', (error) => reject(error));
+    });
   }
 }

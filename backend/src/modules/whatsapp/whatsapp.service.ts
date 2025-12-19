@@ -12,6 +12,7 @@ import {
   WhatsappProvider,
   ConnectionStatus,
 } from './entities/whatsapp-number.entity';
+import { WhatsappNumberCampaign } from './entities/whatsapp-number-campaign.entity';
 import { MetaCloudService } from './providers/meta-cloud.service';
 import { WppConnectService } from './providers/wppconnect.service';
 import { TwilioService } from './providers/twilio.service';
@@ -24,6 +25,8 @@ export class WhatsappService {
   constructor(
     @InjectRepository(WhatsappNumber)
     private whatsappNumberRepository: Repository<WhatsappNumber>,
+    @InjectRepository(WhatsappNumberCampaign)
+    private whatsappNumberCampaignRepository: Repository<WhatsappNumberCampaign>,
     private metaCloudService: MetaCloudService,
     private wppConnectService: WppConnectService,
     private twilioService: TwilioService,
@@ -496,5 +499,85 @@ export class WhatsappService {
       contentSid,
       contentVariables,
     );
+  }
+
+  /**
+   * Obtener número de WhatsApp activo de una campaña
+   * Busca primero en la tabla many-to-many, luego en el campo legacy
+   */
+  async getWhatsappNumberByCampaign(campaignId: string): Promise<WhatsappNumber | null> {
+    this.logger.log(`📱 Buscando número WhatsApp para campaña: ${campaignId}`);
+
+    // Primero buscar en la tabla de relación many-to-many
+    const numberCampaign = await this.whatsappNumberCampaignRepository.findOne({
+      where: { campaignId },
+      relations: ['whatsappNumber'],
+    });
+
+    if (numberCampaign?.whatsappNumber) {
+      const number = numberCampaign.whatsappNumber;
+      // Verificar si está activo y conectado
+      if (number.isActive && number.status === ConnectionStatus.CONNECTED) {
+        this.logger.log(`✅ Número encontrado (many-to-many, conectado): ${number.phoneNumber}`);
+        return number;
+      }
+      // Si no está conectado pero sí activo, devolverlo de todas formas
+      if (number.isActive) {
+        this.logger.log(`✅ Número encontrado (many-to-many, activo): ${number.phoneNumber}`);
+        return number;
+      }
+    }
+
+    // Buscar otros números asignados a esta campaña en many-to-many
+    const allNumberCampaigns = await this.whatsappNumberCampaignRepository.find({
+      where: { campaignId },
+      relations: ['whatsappNumber'],
+    });
+
+    // Priorizar conectados
+    for (const nc of allNumberCampaigns) {
+      if (nc.whatsappNumber?.isActive && nc.whatsappNumber.status === ConnectionStatus.CONNECTED) {
+        this.logger.log(`✅ Número alternativo encontrado (conectado): ${nc.whatsappNumber.phoneNumber}`);
+        return nc.whatsappNumber;
+      }
+    }
+
+    // Si no hay conectados, devolver cualquier activo
+    for (const nc of allNumberCampaigns) {
+      if (nc.whatsappNumber?.isActive) {
+        this.logger.log(`✅ Número alternativo encontrado (activo): ${nc.whatsappNumber.phoneNumber}`);
+        return nc.whatsappNumber;
+      }
+    }
+
+    // Fallback: buscar por el campo legacy campaignId
+    const legacyNumber = await this.whatsappNumberRepository.findOne({
+      where: {
+        campaignId,
+        isActive: true,
+        status: ConnectionStatus.CONNECTED,
+      },
+    });
+
+    if (legacyNumber) {
+      this.logger.log(`✅ Número encontrado (legacy, conectado): ${legacyNumber.phoneNumber}`);
+      return legacyNumber;
+    }
+
+    // Intentar con cualquier número activo de la campaña (legacy)
+    const anyLegacyNumber = await this.whatsappNumberRepository.findOne({
+      where: {
+        campaignId,
+        isActive: true,
+      },
+    });
+
+    if (anyLegacyNumber) {
+      this.logger.log(`✅ Número encontrado (legacy, activo): ${anyLegacyNumber.phoneNumber}`);
+      return anyLegacyNumber;
+    }
+
+    this.logger.warn(`⚠️ No se encontró número WhatsApp para campaña: ${campaignId}`);
+    return null;
   }
 }

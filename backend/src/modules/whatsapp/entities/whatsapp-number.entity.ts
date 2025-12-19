@@ -13,6 +13,7 @@ import { Exclude } from 'class-transformer';
 import { Campaign } from '../../campaigns/entities/campaign.entity';
 import { Chat } from '../../chats/entities/chat.entity';
 import { BotFlow } from '../../bot/entities/bot-flow.entity';
+import { WhatsappNumberCampaign } from './whatsapp-number-campaign.entity';
 
 export enum WhatsappProvider {
   META_CLOUD = 'meta',
@@ -121,6 +122,10 @@ export class WhatsappNumber {
 
   @OneToMany(() => Chat, (chat) => chat.whatsappNumber)
   chats: Chat[];
+
+  // Relación many-to-many con campañas
+  @OneToMany(() => WhatsappNumberCampaign, (nc) => nc.whatsappNumber, { cascade: true })
+  numberCampaigns: WhatsappNumberCampaign[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -41,6 +41,7 @@ import {
   Lock,
   Event,
   EventNote,
+  Send,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../hooks/redux';
@@ -149,6 +150,13 @@ const menuItems: MenuItem[] = [
     icon: <Campaign />,
     path: '/campaigns',
     roles: ['Supervisor', 'Administrador', 'Super Admin'],
+  },
+  {
+    id: 'mass-campaigns',
+    label: 'Envío Masivo WhatsApp',
+    icon: <Send />,
+    path: '/mass-campaigns',
+    roles: ['Administrador', 'Super Admin'],
   },
   {
     id: 'debtors',

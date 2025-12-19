@@ -1,7 +1,8 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike } from 'typeorm';
 import { Debtor, DocumentType } from './entities/debtor.entity';
+import { User } from '../users/entities/user.entity';
 import { CreateDebtorDto } from './dto/create-debtor.dto';
 import { CsvDebtorRow } from './dto/upload-csv.dto';
 import { UploadResultDto, UploadErrorDto, DebtorRowDto } from './dto/upload-result.dto';
@@ -16,6 +17,8 @@ export class DebtorsService {
   constructor(
     @InjectRepository(Debtor)
     private debtorRepository: Repository<Debtor>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
   ) {}
 
   /**
@@ -95,6 +98,52 @@ export class DebtorsService {
     }
     
     return debtor;
+  }
+
+  /**
+   * Buscar agente por nombre (fullName o combinación firstName + lastName)
+   */
+  async findAgentByName(agentName: string): Promise<User | null> {
+    if (!agentName) return null;
+
+    const normalizedName = agentName.trim().toLowerCase();
+    
+    // Buscar por fullName exacto primero
+    let agent = await this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.role', 'role')
+      .where('LOWER(user.fullName) = :name', { name: normalizedName })
+      .andWhere('role.name = :roleName', { roleName: 'Agente' })
+      .getOne();
+
+    if (agent) return agent;
+
+    // Buscar por fullName que contenga el nombre
+    agent = await this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.role', 'role')
+      .where('LOWER(user.fullName) LIKE :name', { name: `%${normalizedName}%` })
+      .andWhere('role.name = :roleName', { roleName: 'Agente' })
+      .getOne();
+
+    if (agent) return agent;
+
+    // Buscar por combinación de firstName + lastName
+    const nameParts = normalizedName.split(' ');
+    if (nameParts.length >= 2) {
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ');
+      
+      agent = await this.userRepository
+        .createQueryBuilder('user')
+        .leftJoinAndSelect('user.role', 'role')
+        .where('LOWER(user.firstName) LIKE :firstName', { firstName: `%${firstName}%` })
+        .andWhere('LOWER(user.lastName) LIKE :lastName', { lastName: `%${lastName}%` })
+        .andWhere('role.name = :roleName', { roleName: 'Agente' })
+        .getOne();
+    }
+
+    return agent;
   }
 
   /**
@@ -193,52 +242,52 @@ export class DebtorsService {
           continue;
         }
 
-        // Normalizar tipo de documento
+        // Normalizar tipo de documento (ahora nunca es null, por defecto CC)
         const docType = this.normalizeDocumentType(row.documentType);
-        if (!docType) {
-          errors.push({
-            row: rowNumber,
-            documentNumber: row.documentNumber,
-            fullName: row.fullName,
-            error: `Tipo de documento inválido: ${row.documentType}. Valores permitidos: CC, CE, NIT, TI, PASSPORT`,
-          });
-          failed++;
-          continue;
-        }
+
+        // NO asignar agente durante la carga - se asignará automáticamente
+        // cuando el cliente contacte vía WhatsApp
+        const assignedAgentId: string | null = null;
 
         // Buscar si ya existe
         const existing = await this.debtorRepository.findOne({
           where: {
             documentType: docType,
-            documentNumber: row.documentNumber.trim(),
+            documentNumber: row.documentNumber.toString().trim(),
           },
         });
 
         const debtAmount = Number(row.debtAmount) || 0;
         const daysOverdue = Number(row.daysOverdue) || 0;
 
+        // Normalizar tipo de contacto
+        const contactType = row.documentType?.toString().trim() || null;
+
         const debtorData: Partial<Debtor> = {
-          fullName: row.fullName.trim(),
+          fullName: row.fullName.toString().trim(),
           documentType: docType,
-          documentNumber: row.documentNumber.trim(),
-          phone: row.phone?.trim() || null,
-          email: row.email?.trim() || null,
-          address: row.address?.trim() || null,
+          documentNumber: row.documentNumber.toString().trim(),
+          phone: row.phone?.toString().trim() || null,
+          email: row.email?.toString().trim() || null,
+          address: row.address?.toString().trim() || null,
           debtAmount,
           initialDebtAmount: Number(row.initialDebtAmount) || debtAmount,
           daysOverdue,
           lastPaymentDate: this.parseDate(row.lastPaymentDate),
           promiseDate: this.parseDate(row.promiseDate),
-          status: row.status?.trim() || 'active',
-          notes: row.notes?.trim() || null,
-          campaignId: campaignId || row.campaignId?.trim() || null,
+          status: row.status?.toString().trim() || 'active',
+          notes: row.notes?.toString().trim() || null,
+          campaignId: campaignId || row.campaignId?.toString().trim() || null,
           whatsappNumberId: whatsappNumberId || null,
+          assignedAgentId: assignedAgentId || null,
+          contactType: contactType,
           metadata: {
-            producto: row.producto?.trim(),
-            numeroCredito: row.numeroCredito?.trim(),
-            fechaVencimiento: row.fechaVencimiento?.trim(),
-            compania: row.compania?.trim(),
-            campaignId: campaignId || row.campaignId?.trim(),
+            producto: row.producto?.toString().trim() || null,
+            numeroCredito: row.numeroCredito?.toString().trim() || null,
+            fechaVencimiento: row.fechaVencimiento?.toString().trim() || null,
+            compania: row.compania?.toString().trim() || null,
+            campaignId: campaignId || row.campaignId?.toString().trim() || null,
+            assignedAgentName: row.assignedAgentName?.toString().trim() || null,
           },
         };
 
@@ -345,13 +394,13 @@ export class DebtorsService {
     };
 
     return {
-      fullName: getField(['nombre', 'fullname', 'name', 'cliente']),
-      documentType: getField(['tipo_doc', 'tipodoc', 'documenttype', 'tipo_documento']),
-      documentNumber: getField(['documento', 'document', 'documentnumber', 'numero_documento', 'cedula']),
-      phone: getField(['telefono', 'phone', 'celular', 'tel']),
+      fullName: getField(['nombre completo', 'nombre', 'fullname', 'name', 'cliente']),
+      documentType: getField(['tipo de contacto', 'tipo_doc', 'tipodoc', 'documenttype', 'tipo_documento', 'tipo contacto', 'tipo']),
+      documentNumber: getField(['numero de identificacion', 'número de identificación', 'documento', 'document', 'documentnumber', 'numero_documento', 'cedula', 'identificacion']),
+      phone: getField(['telefono', 'phone', 'celular', 'tel', 'movil', 'móvil', 'contacto']),
       email: getField(['correo', 'email', 'mail']),
       address: getField(['direccion', 'address', 'domicilio']),
-      debtAmount: getField(['deuda', 'debt', 'debtamount', 'saldo', 'valor']),
+      debtAmount: getField(['deuda', 'debt', 'debtamount', 'saldo', 'valor', 'monto']),
       initialDebtAmount: getField(['deuda_inicial', 'initialdebt', 'capital']),
       daysOverdue: getField(['mora', 'daysoverdue', 'dias_mora', 'diasmora']),
       lastPaymentDate: getField(['ultimo_pago', 'lastpayment', 'fecha_pago']),
@@ -359,10 +408,12 @@ export class DebtorsService {
       status: getField(['estado', 'status']),
       notes: getField(['notas', 'notes', 'observaciones']),
       producto: getField(['producto', 'product']),
-      numeroCredito: getField(['credito', 'credit', 'numero_credito', 'cuenta']),
+      numeroCredito: getField(['solicitud no', 'solicitud', 'credito', 'credit', 'numero_credito', 'cuenta', 'numero solicitud']),
       fechaVencimiento: getField(['vencimiento', 'due', 'fecha_vencimiento']),
       compania: getField(['compania', 'company', 'empresa']),
-      campaignId: getField(['campana', 'campaign', 'campaignid']),
+      campaignId: getField(['cartera', 'campana', 'campaign', 'campaignid']),
+      // Nuevo campo: Nombre del asesor asignado
+      assignedAgentName: getField(['nombre asesor', 'asesor', 'agente', 'agent', 'agent_name', 'assigned_agent']),
     };
   }
 
@@ -374,14 +425,16 @@ export class DebtorsService {
       return { valid: false, error: 'Campo "nombre" es requerido' };
     }
 
-    if (!row.documentType || row.documentType.toString().trim() === '') {
-      return { valid: false, error: 'Campo "tipo_doc" es requerido' };
-    }
+    // El tipo de documento es opcional - se asigna CC por defecto
+    // if (!row.documentType || row.documentType.toString().trim() === '') {
+    //   return { valid: false, error: 'Campo "tipo_doc" es requerido' };
+    // }
 
     if (!row.documentNumber || row.documentNumber.toString().trim() === '') {
       return { valid: false, error: 'Campo "documento" es requerido' };
     }
 
+    // El valor de deuda es opcional - el asesor lo puede agregar después
     if (row.debtAmount && isNaN(Number(row.debtAmount))) {
       return { valid: false, error: 'Campo "deuda" debe ser un número válido' };
     }
@@ -393,13 +446,17 @@ export class DebtorsService {
    * Normalizar tipo de documento
    */
   private normalizeDocumentType(docType: string): DocumentType | null {
-    if (!docType) return null;
+    if (!docType) return DocumentType.CC; // Por defecto CC si no se especifica
 
     const normalized = docType.toString().trim().toUpperCase();
     const mapping: Record<string, DocumentType> = {
       'CC': DocumentType.CC,
       'CEDULA': DocumentType.CC,
       'C.C': DocumentType.CC,
+      'CÉDULA': DocumentType.CC,
+      'CEDULA DE CIUDADANIA': DocumentType.CC,
+      'TITULAR': DocumentType.CC, // Asumimos que Titular es CC
+      'CODEUDOR': DocumentType.CC, // Asumimos que Codeudor es CC
       'CE': DocumentType.CE,
       'C.E': DocumentType.CE,
       'EXTRANJERIA': DocumentType.CE,
@@ -411,7 +468,7 @@ export class DebtorsService {
       'PASAPORTE': DocumentType.PASSPORT,
     };
 
-    return mapping[normalized] || null;
+    return mapping[normalized] || DocumentType.CC; // Por defecto CC si no se reconoce
   }
 
   /**

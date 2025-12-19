@@ -12,10 +12,11 @@ import { ClientPhoneNumber } from './entities/client-phone-number.entity';
 import { PazYSalvo } from './entities/paz-y-salvo.entity';
 import { Chat } from '../chats/entities/chat.entity';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { PaymentRecord } from '../metrics/entities/payment-record.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Client, ClientPhoneNumber, PazYSalvo, Chat]),
+    TypeOrmModule.forFeature([Client, ClientPhoneNumber, PazYSalvo, Chat, PaymentRecord]),
     forwardRef(() => WhatsappModule),
   ],
   controllers: [ClientsController, PaymentPromisesController, PazYSalvoController],

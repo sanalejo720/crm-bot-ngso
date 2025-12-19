@@ -310,6 +310,46 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
+   * Evento: Deudor vinculado al chat
+   * Actualiza el panel izquierdo con la información del deudor
+   */
+  @OnEvent('chat.debtor.linked')
+  handleDebtorLinked(data: {
+    chatId: string;
+    debtorId: string;
+    debtorInfo: {
+      id: string;
+      fullName: string;
+      documentNumber: string;
+      phone: string;
+      email: string;
+      debtAmount: number;
+      status: string;
+      campaignName: string;
+    };
+  }) {
+    this.logger.log(`📋 Evento chat.debtor.linked: Chat ${data.chatId} vinculado a deudor ${data.debtorInfo.fullName}`);
+
+    // Notificar a todos los que están viendo este chat
+    this.server.to(`chat:${data.chatId}`).emit('chat:debtor:linked', {
+      chatId: data.chatId,
+      debtorId: data.debtorId,
+      debtor: data.debtorInfo,
+      timestamp: new Date(),
+    });
+
+    // También emitir a supervisores
+    this.server.to('supervisors').emit('chat:debtor:linked', {
+      chatId: data.chatId,
+      debtorId: data.debtorId,
+      debtor: data.debtorInfo,
+      timestamp: new Date(),
+    });
+
+    this.logger.log(`✅ Evento chat:debtor:linked emitido para chat ${data.chatId}`);
+  }
+
+  /**
    * Evento: Chat desasignado (transferido al bot)
    */
   @OnEvent('chat.unassigned')

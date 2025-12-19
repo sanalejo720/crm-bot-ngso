@@ -84,7 +84,9 @@ export default function ModernSupervisorDashboard() {
       const agentsData = agentsResponse.data.data || [];
 
       const chatsResponse = await apiService.get('/chats');
-      const chatsData = chatsResponse.data.data || [];
+      // La respuesta puede venir como { data: Chat[] } o { data: { data: Chat[], pagination: {...} } }
+      const chatsRaw = chatsResponse.data.data;
+      const chatsData = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
 
       const activeChats = chatsData.filter((c: any) => c.status === 'active');
       const waitingChats = chatsData.filter((c: any) => c.status === 'waiting');

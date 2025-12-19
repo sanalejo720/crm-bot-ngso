@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,6 +21,7 @@ import { ChatsService } from '../chats/chats.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ClientsService } from '../clients/clients.service';
 import { DebtorsService } from '../debtors/debtors.service';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { WhatsappNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { Client, ClientStatus } from '../clients/entities/client.entity';
 import { CollectionStatus } from '../clients/enums/collection-status.enum';
@@ -39,6 +42,8 @@ export class MessagesService {
     private whatsappService: WhatsappService,
     private clientsService: ClientsService,
     private debtorsService: DebtorsService,
+    @Inject(forwardRef(() => CampaignsService))
+    private campaignsService: CampaignsService,
     private eventEmitter: EventEmitter2,
   ) {}
 
@@ -145,6 +150,18 @@ export class MessagesService {
       throw new BadRequestException('Chat no tiene número WhatsApp asociado');
     }
 
+    // Verificar límite de mensajes para chats manuales
+    if (chat.metadata?.createdManually && chat.metadata?.waitingClientResponse) {
+      const canSend = await this.chatsService.canSendManualMessage(chatId);
+      if (!canSend.canSend) {
+        throw new BadRequestException(canSend.reason || 'No puede enviar más mensajes hasta que el cliente responda');
+      }
+    }
+
+    // Si senderId no es un UUID válido (ej: 'system'), usar null
+    const validSenderId = senderId && senderId !== 'system' && senderId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i) ? senderId : null;
+    const senderType = validSenderId ? MessageSenderType.AGENT : MessageSenderType.SYSTEM;
+
     try {
       // Determinar el destinatario: usar whatsappChatId si existe (para @lid), sino contactPhone
       const recipient = chat.metadata?.whatsappChatId || chat.contactPhone;
@@ -163,15 +180,20 @@ export class MessagesService {
         chatId,
         type: MessageType.TEXT,
         direction: MessageDirection.OUTBOUND,
-        senderType: MessageSenderType.AGENT,
+        senderType,
         content,
         externalId: result.messageId,
-        senderId,
+        senderId: validSenderId,
         metadata: result.metadata,
       });
 
       // Actualizar estado a enviado
       await this.updateStatus(message.id, MessageStatus.SENT);
+
+      // Registrar mensaje enviado en chat manual (para control de límite)
+      if (chat.metadata?.createdManually && chat.metadata?.waitingClientResponse) {
+        await this.chatsService.recordManualMessageSent(chatId);
+      }
 
       return message;
     } catch (error) {
@@ -182,9 +204,9 @@ export class MessagesService {
         chatId,
         type: MessageType.TEXT,
         direction: MessageDirection.OUTBOUND,
-        senderType: MessageSenderType.AGENT,
+        senderType,
         content,
-        senderId,
+        senderId: validSenderId,
       });
 
       await this.updateStatus(message.id, MessageStatus.FAILED, error.message);
@@ -274,10 +296,26 @@ export class MessagesService {
 
     if (!chat) {
       // Obtener campaignId desde el número de WhatsApp
-      // Por simplicidad, asumimos que está disponible
       const whatsappNumber = await this.whatsappService.findOne(
         data.whatsappNumberId,
       );
+
+      // Buscar asignación pendiente para este teléfono
+      const agentEmail = await this.campaignsService.findPendingAssignment(data.contactPhone);
+      
+      // Si hay agentEmail, buscar el usuario correspondiente
+      let assignedToUserId: string | undefined;
+      if (agentEmail) {
+        try {
+          // Aquí podrías buscar el usuario por email
+          // const user = await this.usersService.findByEmail(agentEmail);
+          // assignedToUserId = user?.id;
+          // Por ahora dejamos que se asigne después manualmente
+          this.logger.log(`📧 Se encontró agentEmail: ${agentEmail}, se asignará cuando el agente lo vea`);
+        } catch (error) {
+          this.logger.warn(`No se pudo encontrar usuario con email ${agentEmail}`);
+        }
+      }
 
       chat = await this.chatsService.create({
         externalId: `wa-${data.whatsappNumberId}-${data.contactPhone}`,
@@ -285,7 +323,14 @@ export class MessagesService {
         contactName: data.contactName,
         campaignId: whatsappNumber.campaignId,
         whatsappNumberId: data.whatsappNumberId,
+        assignedToUserId,
       });
+
+      // Si hay agentEmail, marcar la asignación como completada
+      if (agentEmail) {
+        await this.campaignsService.markAssignmentAsCompleted(data.contactPhone, agentEmail);
+        this.logger.log(`🎯 Chat ${chat.id} preparado para asignación a ${agentEmail}`);
+      }
 
       // Asociar automáticamente con deudor si existe
       await this.associateDebtorToClient(chat);
@@ -469,9 +514,10 @@ export class MessagesService {
       }
 
       // 3. Buscar chat existente por teléfono normalizado o crear uno nuevo
-      const existingChats = await this.chatsService.findAll({
+      const existingChatsResult = await this.chatsService.findAll({
         campaignId: whatsappNumber.campaignId,
       });
+      const existingChats = existingChatsResult.data || [];
       
       // Buscar tanto por teléfono normalizado como original
       let chat = existingChats.find(c => 
@@ -549,6 +595,12 @@ export class MessagesService {
 
       // 7. Actualizar última actividad del chat
       await this.chatsService.updateLastActivity(chat.id, data.content);
+
+      // 7.1. Si es un chat creado manualmente, activar cuando el cliente responde
+      if (chat.metadata?.createdManually && chat.metadata?.waitingClientResponse) {
+        this.logger.log(`📲 Chat manual ${chat.id} - Cliente respondió, activando chat`);
+        await this.chatsService.activateOnClientResponse(chat.id);
+      }
 
       // 8. Emitir evento para Socket.IO y Bot
       this.eventEmitter.emit('message.created', {

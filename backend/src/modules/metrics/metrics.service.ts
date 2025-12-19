@@ -1,11 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThan } from 'typeorm';
+import { Repository, Between, MoreThan, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
 import { Chat, ChatStatus } from '../chats/entities/chat.entity';
 import { Message, MessageDirection } from '../messages/entities/message.entity';
 import { User } from '../users/entities/user.entity';
 import { AgentSession } from '../users/entities/agent-session.entity';
 import { Campaign } from '../campaigns/entities/campaign.entity';
+import { Client } from '../clients/entities/client.entity';
+import { PaymentRecord, PaymentSource, PaymentStatus } from './entities/payment-record.entity';
 
 /**
  * Servicio de métricas avanzadas para el CRM
@@ -26,6 +28,10 @@ export class MetricsService {
     private sessionRepository: Repository<AgentSession>,
     @InjectRepository(Campaign)
     private campaignRepository: Repository<Campaign>,
+    @InjectRepository(Client)
+    private clientRepository: Repository<Client>,
+    @InjectRepository(PaymentRecord)
+    private paymentRecordRepository: Repository<PaymentRecord>,
   ) {}
 
   // ==================== MÉTRICAS DE AGENTE ====================
@@ -589,6 +595,320 @@ export class MetricsService {
         start: startDate,
         end: endDate,
       },
+    };
+  }
+
+  // ==================== MÉTRICAS DE RECAUDO ====================
+
+  /**
+   * Registrar un pago
+   */
+  async recordPayment(dto: {
+    clientId: string;
+    agentId?: string;
+    campaignId?: string;
+    amount: number;
+    paymentDate: string;
+    source?: PaymentSource;
+    status?: PaymentStatus;
+    referenceId?: string;
+    notes?: string;
+  }, recordedBy?: string): Promise<PaymentRecord> {
+    // Obtener el cliente para calcular porcentajes
+    const client = await this.clientRepository.findOne({
+      where: { id: dto.clientId },
+    });
+
+    if (!client) {
+      throw new NotFoundException(`Cliente ${dto.clientId} no encontrado`);
+    }
+
+    const originalDebt = Number(client.originalDebtAmount || client.debtAmount || 0);
+    const currentDebt = Number(client.debtAmount || 0);
+    const paymentAmount = Number(dto.amount);
+    const remainingDebt = Math.max(0, currentDebt - paymentAmount);
+    const recoveryPercentage = originalDebt > 0 
+      ? (paymentAmount / originalDebt) * 100 
+      : 100;
+
+    // Crear registro de pago
+    const paymentRecord = this.paymentRecordRepository.create({
+      clientId: dto.clientId,
+      agentId: dto.agentId || recordedBy,
+      campaignId: dto.campaignId || client.campaignId,
+      amount: paymentAmount,
+      originalDebt,
+      remainingDebt,
+      recoveryPercentage: Math.min(recoveryPercentage, 100),
+      paymentDate: new Date(dto.paymentDate),
+      source: dto.source || PaymentSource.MANUAL,
+      status: dto.status || PaymentStatus.CONFIRMED,
+      referenceId: dto.referenceId,
+      notes: dto.notes,
+      metadata: {
+        documentNumber: client.documentNumber,
+      },
+    });
+
+    await this.paymentRecordRepository.save(paymentRecord);
+
+    // Actualizar el cliente
+    await this.clientRepository.update(dto.clientId, {
+      debtAmount: remainingDebt,
+      lastPaymentAmount: paymentAmount,
+      lastPaymentDate: new Date(dto.paymentDate),
+      collectionStatus: remainingDebt <= 0 ? 'paid' : 'partial',
+    });
+
+    this.logger.log(
+      `💰 Pago registrado: ${paymentAmount} del cliente ${client.fullName} (${recoveryPercentage.toFixed(2)}% recuperado)`,
+    );
+
+    return paymentRecord;
+  }
+
+  /**
+   * Obtener métricas generales de recaudo
+   */
+  async getCollectionMetrics(filters: {
+    startDate?: string;
+    endDate?: string;
+    agentId?: string;
+    campaignId?: string;
+  }): Promise<{
+    totalCollected: number;
+    totalDebtAssigned: number;
+    recoveryPercentage: number;
+    paymentsCount: number;
+    averagePayment: number;
+  }> {
+    const whereConditions: any = {
+      status: PaymentStatus.CONFIRMED,
+    };
+
+    if (filters.startDate && filters.endDate) {
+      whereConditions.paymentDate = Between(
+        new Date(filters.startDate),
+        new Date(filters.endDate),
+      );
+    } else if (filters.startDate) {
+      whereConditions.paymentDate = MoreThanOrEqual(new Date(filters.startDate));
+    } else if (filters.endDate) {
+      whereConditions.paymentDate = LessThanOrEqual(new Date(filters.endDate));
+    }
+
+    if (filters.agentId) {
+      whereConditions.agentId = filters.agentId;
+    }
+
+    if (filters.campaignId) {
+      whereConditions.campaignId = filters.campaignId;
+    }
+
+    const payments = await this.paymentRecordRepository.find({
+      where: whereConditions,
+    });
+
+    const totalCollected = payments.reduce(
+      (sum, p) => sum + Number(p.amount),
+      0,
+    );
+    const totalDebtAssigned = payments.reduce(
+      (sum, p) => sum + Number(p.originalDebt),
+      0,
+    );
+    const paymentsCount = payments.length;
+    const averagePayment = paymentsCount > 0 ? totalCollected / paymentsCount : 0;
+    const recoveryPercentage = totalDebtAssigned > 0
+      ? (totalCollected / totalDebtAssigned) * 100
+      : 0;
+
+    return {
+      totalCollected,
+      totalDebtAssigned,
+      recoveryPercentage,
+      paymentsCount,
+      averagePayment,
+    };
+  }
+
+  /**
+   * Obtener métricas de recaudo por agente (ranking)
+   */
+  async getAgentCollectionMetrics(filters: {
+    startDate?: string;
+    endDate?: string;
+    campaignId?: string;
+  }): Promise<Array<{
+    agentId: string;
+    agentName: string;
+    totalCollected: number;
+    totalAssigned: number;
+    recoveryPercentage: number;
+    paymentsCount: number;
+    ranking: number;
+  }>> {
+    const queryBuilder = this.paymentRecordRepository
+      .createQueryBuilder('payment')
+      .select('payment.agentId', 'agentId')
+      .addSelect('SUM(payment.amount)', 'totalCollected')
+      .addSelect('SUM(payment.originalDebt)', 'totalAssigned')
+      .addSelect('COUNT(*)', 'paymentsCount')
+      .leftJoin('users', 'agent', 'agent.id = payment.agentId')
+      .addSelect('agent.fullName', 'agentName')
+      .where('payment.status = :status', { status: PaymentStatus.CONFIRMED })
+      .groupBy('payment.agentId')
+      .addGroupBy('agent.fullName')
+      .orderBy('SUM(payment.amount)', 'DESC');
+
+    if (filters.startDate) {
+      queryBuilder.andWhere('payment.paymentDate >= :startDate', {
+        startDate: filters.startDate,
+      });
+    }
+
+    if (filters.endDate) {
+      queryBuilder.andWhere('payment.paymentDate <= :endDate', {
+        endDate: filters.endDate,
+      });
+    }
+
+    if (filters.campaignId) {
+      queryBuilder.andWhere('payment.campaignId = :campaignId', {
+        campaignId: filters.campaignId,
+      });
+    }
+
+    const results = await queryBuilder.getRawMany();
+
+    return results.map((r, index) => ({
+      agentId: r.agentId,
+      agentName: r.agentName || 'Sin asignar',
+      totalCollected: Number(r.totalCollected) || 0,
+      totalAssigned: Number(r.totalAssigned) || 0,
+      recoveryPercentage: r.totalAssigned > 0
+        ? (Number(r.totalCollected) / Number(r.totalAssigned)) * 100
+        : 0,
+      paymentsCount: Number(r.paymentsCount) || 0,
+      ranking: index + 1,
+    }));
+  }
+
+  /**
+   * Obtener métricas de recaudo en serie de tiempo
+   */
+  async getCollectionTimeSeries(filters: {
+    startDate?: string;
+    endDate?: string;
+    agentId?: string;
+    campaignId?: string;
+    groupBy?: 'day' | 'week' | 'month';
+  }): Promise<Array<{
+    date: string;
+    totalCollected: number;
+    paymentsCount: number;
+    recoveryPercentage: number;
+  }>> {
+    const groupBy = filters.groupBy || 'day';
+    
+    let dateFormat: string;
+    switch (groupBy) {
+      case 'week':
+        dateFormat = "TO_CHAR(payment.paymentDate, 'IYYY-IW')";
+        break;
+      case 'month':
+        dateFormat = "TO_CHAR(payment.paymentDate, 'YYYY-MM')";
+        break;
+      default:
+        dateFormat = "TO_CHAR(payment.paymentDate, 'YYYY-MM-DD')";
+    }
+
+    const queryBuilder = this.paymentRecordRepository
+      .createQueryBuilder('payment')
+      .select(dateFormat, 'date')
+      .addSelect('SUM(payment.amount)', 'totalCollected')
+      .addSelect('SUM(payment.originalDebt)', 'totalAssigned')
+      .addSelect('COUNT(*)', 'paymentsCount')
+      .where('payment.status = :status', { status: PaymentStatus.CONFIRMED })
+      .groupBy(dateFormat)
+      .orderBy(dateFormat, 'ASC');
+
+    if (filters.startDate) {
+      queryBuilder.andWhere('payment.paymentDate >= :startDate', {
+        startDate: filters.startDate,
+      });
+    }
+
+    if (filters.endDate) {
+      queryBuilder.andWhere('payment.paymentDate <= :endDate', {
+        endDate: filters.endDate,
+      });
+    }
+
+    if (filters.agentId) {
+      queryBuilder.andWhere('payment.agentId = :agentId', {
+        agentId: filters.agentId,
+      });
+    }
+
+    if (filters.campaignId) {
+      queryBuilder.andWhere('payment.campaignId = :campaignId', {
+        campaignId: filters.campaignId,
+      });
+    }
+
+    const results = await queryBuilder.getRawMany();
+
+    return results.map((r) => ({
+      date: r.date,
+      totalCollected: Number(r.totalCollected) || 0,
+      paymentsCount: Number(r.paymentsCount) || 0,
+      recoveryPercentage: r.totalAssigned > 0
+        ? (Number(r.totalCollected) / Number(r.totalAssigned)) * 100
+        : 0,
+    }));
+  }
+
+  /**
+   * Obtener resumen de cartera
+   */
+  async getPortfolioSummary(campaignId?: string): Promise<{
+    totalPortfolio: number;
+    totalCollected: number;
+    totalPending: number;
+    recoveryPercentage: number;
+    clientsCount: number;
+    paidClients: number;
+    pendingClients: number;
+  }> {
+    const clientQuery = this.clientRepository.createQueryBuilder('client');
+
+    if (campaignId) {
+      clientQuery.where('client.campaignId = :campaignId', { campaignId });
+    }
+
+    const clients = await clientQuery.getMany();
+
+    const totalPortfolio = clients.reduce(
+      (sum, c) => sum + Number(c.originalDebtAmount || c.debtAmount || 0),
+      0,
+    );
+    const totalPending = clients.reduce(
+      (sum, c) => sum + Number(c.debtAmount || 0),
+      0,
+    );
+    const totalCollected = totalPortfolio - totalPending;
+    const paidClients = clients.filter(c => c.collectionStatus === 'paid').length;
+    const pendingClients = clients.filter(c => c.collectionStatus !== 'paid').length;
+
+    return {
+      totalPortfolio,
+      totalCollected,
+      totalPending,
+      recoveryPercentage: totalPortfolio > 0 ? (totalCollected / totalPortfolio) * 100 : 0,
+      clientsCount: clients.length,
+      paidClients,
+      pendingClients,
     };
   }
 }

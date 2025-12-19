@@ -1,9 +1,12 @@
 import { 
   Controller, 
   Get, 
+  Post,
+  Body,
   Query, 
   UseGuards,
   Param,
+  Req,
 } from '@nestjs/common';
 import { 
   ApiTags, 
@@ -13,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MetricsService } from './metrics.service';
+import { PaymentSource, PaymentStatus } from './entities/payment-record.entity';
 
 @ApiTags('Metrics')
 @ApiBearerAuth()
@@ -152,5 +156,93 @@ export class MetricsController {
       fiveMinutesAgo,
       now
     );
+  }
+
+  // ==================== MÉTRICAS DE RECAUDO ====================
+
+  @Post('payments')
+  @ApiOperation({ summary: 'Registrar un pago' })
+  async recordPayment(
+    @Body() dto: {
+      clientId: string;
+      agentId?: string;
+      campaignId?: string;
+      amount: number;
+      paymentDate: string;
+      source?: PaymentSource;
+      status?: PaymentStatus;
+      referenceId?: string;
+      notes?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.metricsService.recordPayment(dto, req.user?.id);
+  }
+
+  @Get('collection')
+  @ApiOperation({ summary: 'Obtener métricas generales de recaudo' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'agentId', required: false })
+  @ApiQuery({ name: 'campaignId', required: false })
+  async getCollectionMetrics(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('agentId') agentId?: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.metricsService.getCollectionMetrics({
+      startDate,
+      endDate,
+      agentId,
+      campaignId,
+    });
+  }
+
+  @Get('collection/agents')
+  @ApiOperation({ summary: 'Obtener ranking de recaudo por agente' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'campaignId', required: false })
+  async getAgentCollectionMetrics(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.metricsService.getAgentCollectionMetrics({
+      startDate,
+      endDate,
+      campaignId,
+    });
+  }
+
+  @Get('collection/timeseries')
+  @ApiOperation({ summary: 'Obtener métricas de recaudo en serie de tiempo' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'agentId', required: false })
+  @ApiQuery({ name: 'campaignId', required: false })
+  @ApiQuery({ name: 'groupBy', required: false, enum: ['day', 'week', 'month'] })
+  async getCollectionTimeSeries(
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('agentId') agentId?: string,
+    @Query('campaignId') campaignId?: string,
+    @Query('groupBy') groupBy?: 'day' | 'week' | 'month',
+  ) {
+    return this.metricsService.getCollectionTimeSeries({
+      startDate,
+      endDate,
+      agentId,
+      campaignId,
+      groupBy,
+    });
+  }
+
+  @Get('portfolio')
+  @ApiOperation({ summary: 'Obtener resumen de cartera' })
+  @ApiQuery({ name: 'campaignId', required: false })
+  async getPortfolioSummary(@Query('campaignId') campaignId?: string) {
+    return this.metricsService.getPortfolioSummary(campaignId);
   }
 }

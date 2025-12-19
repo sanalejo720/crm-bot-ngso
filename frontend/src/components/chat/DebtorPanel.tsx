@@ -31,9 +31,10 @@ import {
   Phone,
   Email,
   Assignment,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useAppDispatch } from '../../hooks/redux';
-import { updateClientStatus, setPromisePayment } from '../../store/slices/clientsSlice';
+import { updateClientStatus, setPromisePayment, updateClientData } from '../../store/slices/clientsSlice';
 import { updateChatStatus } from '../../store/slices/chatsSlice';
 import type { Client, Chat } from '../../types/index';
 import ExportChatSection from './ExportChatSection';
@@ -64,6 +65,19 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
   const [promiseAmount, setPromiseAmount] = useState(debtAmount);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Estado para edición del cliente
+  const [editDialog, setEditDialog] = useState(false);
+  const [editData, setEditData] = useState({
+    fullName: client?.fullName || '',
+    phone: client?.phone || '',
+    email: client?.email || '',
+    address: client?.address || '',
+    documentType: client?.documentType || 'CC',
+    documentNumber: client?.documentNumber || '',
+    debtAmount: client?.debtAmount || 0,
+    daysOverdue: client?.daysOverdue || 0,
+  });
 
   // Si no hay cliente, mostrar mensaje
   if (!client) {
@@ -80,6 +94,41 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
   const clientWithDebt = { ...client, debtAmount, daysOverdue };
   const priority = getClientPriority(clientWithDebt);
   const priorityColor = getPriorityColor(priority);
+
+  const handleOpenEditDialog = () => {
+    setEditData({
+      fullName: client.fullName || '',
+      phone: client.phone || '',
+      email: client.email || '',
+      address: client.address || '',
+      documentType: client.documentType || 'CC',
+      documentNumber: client.documentNumber || '',
+      debtAmount: client.debtAmount || 0,
+      daysOverdue: client.daysOverdue || 0,
+    });
+    setEditDialog(true);
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      setIsUpdating(true);
+      await dispatch(updateClientData({ clientId: client.id, data: editData })).unwrap();
+      setEditDialog(false);
+      setSnackbar({
+        open: true,
+        message: 'Información del deudor actualizada',
+        severity: 'success',
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.message || 'Error al actualizar información',
+        severity: 'error',
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const handleUpdateStatus = async (status: string) => {
     try {
@@ -177,12 +226,20 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
   return (
     <Box sx={{ height: '100%', overflow: 'auto', p: 2 }}>
       {/* Encabezado */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h6">
           Información del Deudor
         </Typography>
-        <Divider />
+        <IconButton 
+          onClick={handleOpenEditDialog} 
+          size="small" 
+          color="primary"
+          title="Editar información"
+        >
+          <EditIcon />
+        </IconButton>
       </Box>
+      <Divider sx={{ mb: 2 }} />
 
       {/* Prioridad */}
       <Paper elevation={2} sx={{ p: 2, mb: 2, borderLeft: 4, borderColor: priorityColor }}>
@@ -438,6 +495,94 @@ export default function DebtorPanel({ client, chat }: DebtorPanelProps) {
             variant="contained"
             onClick={handleSavePromise}
             disabled={!promiseDate || promiseAmount <= 0 || isUpdating}
+            startIcon={isUpdating ? <CircularProgress size={16} /> : null}
+          >
+            {isUpdating ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de edición de cliente */}
+      <Dialog open={editDialog} onClose={() => setEditDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          Editar Información del Deudor
+          <IconButton
+            onClick={() => setEditDialog(false)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <Close />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="Nombre Completo"
+              fullWidth
+              value={editData.fullName}
+              onChange={(e) => setEditData({ ...editData, fullName: e.target.value })}
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Tipo Documento"
+                fullWidth
+                value={editData.documentType}
+                onChange={(e) => setEditData({ ...editData, documentType: e.target.value })}
+              />
+              <TextField
+                label="Número Documento"
+                fullWidth
+                value={editData.documentNumber}
+                onChange={(e) => setEditData({ ...editData, documentNumber: e.target.value })}
+              />
+            </Box>
+            <TextField
+              label="Teléfono"
+              fullWidth
+              value={editData.phone}
+              onChange={(e) => setEditData({ ...editData, phone: e.target.value })}
+            />
+            <TextField
+              label="Email"
+              fullWidth
+              type="email"
+              value={editData.email}
+              onChange={(e) => setEditData({ ...editData, email: e.target.value })}
+            />
+            <TextField
+              label="Dirección"
+              fullWidth
+              value={editData.address}
+              onChange={(e) => setEditData({ ...editData, address: e.target.value })}
+            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                label="Monto Deuda"
+                fullWidth
+                type="number"
+                value={editData.debtAmount}
+                onChange={(e) => setEditData({ ...editData, debtAmount: Number(e.target.value) })}
+                InputProps={{
+                  startAdornment: <Typography sx={{ mr: 1 }}>$</Typography>,
+                }}
+              />
+              <TextField
+                label="Días en Mora"
+                fullWidth
+                type="number"
+                value={editData.daysOverdue}
+                onChange={(e) => setEditData({ ...editData, daysOverdue: Number(e.target.value) })}
+              />
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialog(false)} disabled={isUpdating}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveEdit}
+            disabled={isUpdating}
             startIcon={isUpdating ? <CircularProgress size={16} /> : null}
           >
             {isUpdating ? 'Guardando...' : 'Guardar'}

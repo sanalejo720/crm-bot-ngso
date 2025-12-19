@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
@@ -7,13 +7,15 @@ import { ChatsModule } from '../chats/chats.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ClientsModule } from '../clients/clients.module';
 import { DebtorsModule } from '../debtors/debtors.module';
+import { CampaignsModule } from '../campaigns/campaigns.module';
 import { WhatsappNumber } from '../whatsapp/entities/whatsapp-number.entity';
 import { Client } from '../clients/entities/client.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Message, WhatsappNumber, Client]),
-    ChatsModule,
+    forwardRef(() => ChatsModule),
+    forwardRef(() => CampaignsModule),
     WhatsappModule,
     ClientsModule,
     DebtorsModule,

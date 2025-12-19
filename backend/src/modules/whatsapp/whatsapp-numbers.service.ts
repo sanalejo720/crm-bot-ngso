@@ -3,8 +3,9 @@
 
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { WhatsappNumber, WhatsappProvider } from './entities/whatsapp-number.entity';
+import { WhatsappNumberCampaign } from './entities/whatsapp-number-campaign.entity';
 import { CreateWhatsappNumberDto } from './dto/create-whatsapp-number.dto';
 import { UpdateWhatsappNumberDto } from './dto/update-whatsapp-number.dto';
 import { WppConnectService } from './providers/wppconnect.service';
@@ -21,6 +22,8 @@ export class WhatsappNumbersService {
   constructor(
     @InjectRepository(WhatsappNumber)
     private whatsappNumberRepository: Repository<WhatsappNumber>,
+    @InjectRepository(WhatsappNumberCampaign)
+    private whatsappNumberCampaignRepository: Repository<WhatsappNumberCampaign>,
     private wppConnectService: WppConnectService,
     private metaService: MetaService,
     private eventEmitter: EventEmitter2,
@@ -99,7 +102,7 @@ export class WhatsappNumbersService {
 
   async findAll(): Promise<WhatsappNumber[]> {
     return await this.whatsappNumberRepository.find({
-      relations: ['campaign', 'botFlow'],
+      relations: ['campaign', 'botFlow', 'numberCampaigns', 'numberCampaigns.campaign'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -107,14 +110,14 @@ export class WhatsappNumbersService {
   async findAllActive(): Promise<WhatsappNumber[]> {
     return await this.whatsappNumberRepository.find({
       where: { isActive: true },
-      relations: ['campaign', 'botFlow'],
+      relations: ['campaign', 'botFlow', 'numberCampaigns', 'numberCampaigns.campaign'],
     });
   }
 
   async findOne(id: string): Promise<WhatsappNumber> {
     const number = await this.whatsappNumberRepository.findOne({
       where: { id },
-      relations: ['campaign', 'botFlow'],
+      relations: ['campaign', 'botFlow', 'numberCampaigns', 'numberCampaigns.campaign'],
     });
 
     if (!number) {
@@ -307,7 +310,7 @@ export class WhatsappNumbersService {
   }
 
   /**
-   * Asignar número a campaña
+   * Asignar número a una campaña (legacy - mantiene compatibilidad)
    */
   async assignToCampaign(id: string, campaignId: string): Promise<WhatsappNumber> {
     const number = await this.findOne(id);
@@ -324,12 +327,82 @@ export class WhatsappNumbersService {
   }
 
   /**
+   * Asignar número a múltiples campañas
+   */
+  async assignToCampaigns(id: string, campaignIds: string[]): Promise<WhatsappNumber> {
+    console.log(`📱 Asignando campañas al número ${id}:`, campaignIds);
+    
+    if (!id) {
+      throw new BadRequestException('ID de número WhatsApp es requerido');
+    }
+
+    const number = await this.findOne(id);
+    
+    if (!number || !number.id) {
+      throw new NotFoundException(`Número WhatsApp con ID ${id} no encontrado`);
+    }
+
+    // Eliminar asignaciones existentes usando query builder
+    await this.whatsappNumberCampaignRepository
+      .createQueryBuilder()
+      .delete()
+      .where('whatsappNumberId = :numberId', { numberId: number.id })
+      .execute();
+
+    // Filtrar campaignIds vacíos
+    const validCampaignIds = (campaignIds || []).filter(cId => cId && cId.trim() !== '');
+
+    // Crear nuevas asignaciones
+    if (validCampaignIds.length > 0) {
+      // Insertar usando query builder para evitar problemas de cascade
+      for (const campaignId of validCampaignIds) {
+        await this.whatsappNumberCampaignRepository
+          .createQueryBuilder()
+          .insert()
+          .values({
+            whatsappNumberId: number.id,
+            campaignId: campaignId,
+          })
+          .execute();
+        console.log(`  ✅ Asignado campaña ${campaignId} al número ${number.id}`);
+      }
+
+      // También actualizar el campaignId principal para compatibilidad
+      await this.whatsappNumberRepository.update(number.id, { campaignId: validCampaignIds[0] });
+    } else {
+      // Si no hay campañas, limpiar el campaignId
+      await this.whatsappNumberRepository.update(number.id, { campaignId: null });
+    }
+
+    this.eventEmitter.emit('whatsapp.number.assigned', {
+      numberId: id,
+      campaignIds: validCampaignIds,
+    });
+
+    // Retornar el número actualizado con las relaciones
+    return await this.findOne(id);
+  }
+
+  /**
    * Buscar números por campaña
    */
   async findByCampaign(campaignId: string): Promise<WhatsappNumber[]> {
-    return await this.whatsappNumberRepository.find({
-      where: { campaignId, isActive: true },
+    // Buscar en la tabla de relación many-to-many
+    const numberCampaigns = await this.whatsappNumberCampaignRepository.find({
+      where: { campaignId },
+      relations: ['whatsappNumber'],
     });
+
+    // Si no hay resultados en many-to-many, buscar por el campo legacy
+    if (numberCampaigns.length === 0) {
+      return await this.whatsappNumberRepository.find({
+        where: { campaignId, isActive: true },
+      });
+    }
+
+    return numberCampaigns
+      .map(nc => nc.whatsappNumber)
+      .filter(n => n && n.isActive);
   }
 
   /**

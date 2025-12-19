@@ -34,6 +34,8 @@ import {
 import AppHeader from '../components/layout/AppHeader';
 import apiService from '../services/api';
 import AgentMonitoring from '../components/workday/AgentMonitoring';
+import CollectionMetrics from '../components/dashboard/CollectionMetrics';
+import ChatSearch from '../components/dashboard/ChatSearch';
 
 interface DashboardStats {
   totalAgents: number;
@@ -102,7 +104,9 @@ export default function SupervisorDashboard() {
       setAgents(agentsData);
 
       const chatsResponse = await apiService.get('/chats');
-      const chatsData = chatsResponse.data.data || [];
+      // La respuesta puede venir como { data: Chat[] } o { data: { data: Chat[], pagination: {...} } }
+      const chatsRaw = chatsResponse.data.data;
+      const chatsData = Array.isArray(chatsRaw) ? chatsRaw : (chatsRaw?.data || []);
 
       setRecentChats(chatsData.slice(0, 10));
 
@@ -190,11 +194,17 @@ export default function SupervisorDashboard() {
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
           <Tab label="Vista General" />
           <Tab label="Monitoreo de Agentes" />
+          <Tab label="Métricas de Cobranza" />
+          <Tab label="Búsqueda de Chats" />
         </Tabs>
         
         {isLoading && <LinearProgress sx={{ mb: 2 }} />}
 
         {tabValue === 1 && <AgentMonitoring />}
+        
+        {tabValue === 2 && <CollectionMetrics />}
+
+        {tabValue === 3 && <ChatSearch />}
 
         {tabValue === 0 && (
           <Box>

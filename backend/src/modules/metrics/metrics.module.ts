@@ -7,6 +7,8 @@ import { Message } from '../messages/entities/message.entity';
 import { User } from '../users/entities/user.entity';
 import { AgentSession } from '../users/entities/agent-session.entity';
 import { Campaign } from '../campaigns/entities/campaign.entity';
+import { Client } from '../clients/entities/client.entity';
+import { PaymentRecord } from './entities/payment-record.entity';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { Campaign } from '../campaigns/entities/campaign.entity';
       User,
       AgentSession,
       Campaign,
+      Client,
+      PaymentRecord,
     ]),
   ],
   controllers: [MetricsController],

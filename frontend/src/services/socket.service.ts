@@ -139,6 +139,15 @@ class SocketService {
     });
   }
 
+  // Escuchar cuando se vincula un deudor a un chat
+  onDebtorLinked(handler: (data: { chatId: string; debtorId: string; debtor: any }) => void): () => void {
+    console.log('🎧 Registrando listener para chat:debtor:linked');
+    return this.on<{ chatId: string; debtorId: string; debtor: any }>('chat:debtor:linked', (data) => {
+      console.log('👤 [Socket] Deudor vinculado al chat:', data);
+      handler(data);
+    });
+  }
+
   // Unirse a sala de agente
   joinAgentRoom(agentId: string): void {
     if (!this.socket?.connected) {
