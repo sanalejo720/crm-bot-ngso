@@ -15,6 +15,7 @@ import { User } from '../users/entities/user.entity';
 import { MessagesModule } from '../messages/messages.module';
 import { ChatsModule } from '../chats/chats.module';
 import { DebtorsModule } from '../debtors/debtors.module';
+import { ClientsModule } from '../clients/clients.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
@@ -23,6 +24,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     MessagesModule,
     ChatsModule,
     DebtorsModule,
+    ClientsModule,
     WhatsappModule,
   ],
   controllers: [BotController, BotFlowsController],

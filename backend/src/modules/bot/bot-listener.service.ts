@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { BotEngineService } from './bot-engine.service';
 import { ChatsService } from '../chats/chats.service';
 import { DebtorsService } from '../debtors/debtors.service';
+import { ClientsService } from '../clients/clients.service';
 import { Chat, ChatStatus } from '../chats/entities/chat.entity';
 import { Message, MessageDirection, MessageType, MessageSenderType, MessageStatus } from '../messages/entities/message.entity';
 import { MessagesService } from '../messages/messages.service';
@@ -31,6 +32,7 @@ export class BotListenerService {
     private botEngineService: BotEngineService,
     private chatsService: ChatsService,
     private debtorsService: DebtorsService,
+    private clientsService: ClientsService,
     private messagesService: MessagesService,
     private whatsappService: WhatsappService,
     @InjectRepository(Campaign)
@@ -160,6 +162,7 @@ export class BotListenerService {
   async searchDebtorByDocument(
     documentType: string,
     documentNumber: string,
+    chatId?: string, // NUEVO: ID del chat para actualizar datos
   ): Promise<any> {
     try {
       // Validar tipo de documento
@@ -182,6 +185,11 @@ export class BotListenerService {
 
       // Actualizar última fecha de contacto
       await this.debtorsService.updateLastContacted(debtor.id);
+
+      // NUEVO: Actualizar datos del chat con información del deudor
+      if (chatId) {
+        await this.updateChatWithDebtorInfo(chatId, debtor);
+      }
 
       return {
         found: true,
@@ -206,6 +214,88 @@ export class BotListenerService {
         found: false,
         error: 'Error buscando información. Intente nuevamente.',
       };
+    }
+  }
+
+  /**
+   * Actualizar datos del chat con información del deudor
+   */
+  private async updateChatWithDebtorInfo(chatId: string, debtor: any): Promise<void> {
+    try {
+      this.logger.log(`📝 Actualizando chat ${chatId} con datos del deudor ${debtor.fullName}`);
+
+      // Separar nombre completo en firstName y lastName
+      const nameParts = debtor.fullName.split(' ');
+      const firstName = nameParts[0] || debtor.fullName;
+      const lastName = nameParts.slice(1).join(' ') || '';
+
+      // Buscar o crear cliente con datos del deudor
+      let client = await this.clientsService.findByPhone(debtor.phone || '');
+
+      if (!client && debtor.phone) {
+        // Mapear status del deudor a CollectionStatus
+        let collectionStatus = 'pending' as any;
+        if (debtor.status === 'contacted') {
+          collectionStatus = 'contacted';
+        } else if (debtor.status === 'promise') {
+          collectionStatus = 'promise';
+        } else if (debtor.status === 'paid') {
+          collectionStatus = 'paid';
+        } else if (debtor.status === 'legal') {
+          collectionStatus = 'legal';
+        }
+
+        client = await this.clientsService.create({
+          phone: debtor.phone,
+          firstName,
+          lastName,
+          email: debtor.email || undefined,
+          company: debtor.metadata?.producto || undefined,
+          tags: ['deudor', debtor.status],
+          debtAmount: debtor.debtAmount,
+          daysOverdue: debtor.daysOverdue,
+          documentNumber: debtor.documentNumber,
+          collectionStatus,
+          customFields: {
+            debtorId: debtor.id,
+            documentType: debtor.documentType,
+            producto: debtor.metadata?.producto,
+            originalData: debtor.metadata,
+          },
+        });
+
+        this.logger.log(`✅ Cliente creado: ${client.id} - ${debtor.fullName}`);
+      }
+
+      // Actualizar chat con nombre del deudor y vincular cliente
+      const updateData: any = {
+        contactName: debtor.fullName,
+      };
+
+      if (client) {
+        updateData.clientId = client.id;
+      }
+
+      // También guardar debtorId directamente en metadata del chat
+      const chat = await this.chatsService.findOne(chatId);
+      updateData.metadata = {
+        ...chat.metadata,
+        debtorId: debtor.id,
+        debtorFound: true,
+        debtorInfo: {
+          fullName: debtor.fullName,
+          documentType: debtor.documentType,
+          documentNumber: debtor.documentNumber,
+          debtAmount: debtor.debtAmount,
+          daysOverdue: debtor.daysOverdue,
+        },
+      };
+
+      await this.chatsService.update(chatId, updateData);
+      this.logger.log(`✅ Chat ${chatId} actualizado con datos de ${debtor.fullName}`);
+
+    } catch (error) {
+      this.logger.error(`Error actualizando chat con deudor: ${error.message}`, error.stack);
     }
   }
 

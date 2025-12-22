@@ -80,11 +80,32 @@ export class ChatsController {
     @CurrentUser('role') userRole: { name: string },
   ) {
     // Si es Supervisor o Super Admin, devolver todos los chats para supervisión
+    // EXCLUYE chats de campañas masivas sin respuestas
     if (userRole.name === 'Supervisor' || userRole.name === 'Super Admin') {
-      return this.chatsService.findAll({});
+      return this.chatsService.findAll({ includeMassCampaigns: false });
     }
-    // Si es Agente, solo sus chats asignados
-    return this.chatsService.findAll({ assignedAgentId: userId });
+    // Si es Agente, solo sus chats asignados (también excluye mass campaigns sin respuesta)
+    return this.chatsService.findAll({ assignedAgentId: userId, includeMassCampaigns: false });
+  }
+
+  @Get('mass-campaigns')
+  @ApiOperation({ summary: 'Obtener chats de campañas masivas (incluye sin respuestas)' })
+  @RequirePermissions({ module: 'campaigns', action: 'read' })
+  getMassCampaignChats(
+    @Query('campaignName') campaignName?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    // Incluir todos los chats de mass campaigns, filtrados por campaignName si se proporciona
+    const query: any = { 
+      includeMassCampaigns: true,
+      campaignName: campaignName || undefined,
+    };
+    
+    if (page) query.page = parseInt(page, 10);
+    if (limit) query.limit = parseInt(limit, 10);
+
+    return this.chatsService.findAll(query);
   }
 
   @Get('waiting/:campaignId')

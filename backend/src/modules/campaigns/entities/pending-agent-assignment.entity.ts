@@ -12,6 +12,9 @@ export class PendingAgentAssignment {
   @Column({ name: 'agent_email', type: 'varchar', length: 255, nullable: false })
   agentEmail: string;
 
+  @Column({ name: 'campaign_name', type: 'varchar', length: 255, nullable: true })
+  campaignName: string;
+
   @Column({ name: 'campaign_id', type: 'uuid', nullable: true })
   campaignId: string;
 

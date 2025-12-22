@@ -82,6 +82,8 @@ export class ChatsService {
     search?: string;
     page?: number;
     limit?: number;
+    includeMassCampaigns?: boolean; // NEW: Para incluir campañas masivas sin respuestas
+    campaignName?: string; // NEW: Filtrar por nombre de campaña masiva
   }): Promise<{ data: Chat[]; pagination?: { page: number; limit: number; total: number; totalPages: number } }> {
     const query = this.chatRepository
       .createQueryBuilder('chat')
@@ -90,6 +92,22 @@ export class ChatsService {
       .leftJoinAndSelect('chat.assignedAgent', 'assignedAgent')
       .leftJoinAndSelect('chat.client', 'client')
       .orderBy('chat.lastMessageAt', 'DESC');
+
+    // EXCLUIR chats de campañas masivas sin respuestas del cliente (excepto si se solicita explícitamente)
+    if (!filters?.includeMassCampaigns) {
+      query.andWhere(
+        `(chat.metadata->>'source' IS NULL OR 
+         chat.metadata->>'source' != 'mass_campaign' OR 
+         chat.metadata->>'hasClientResponse' = 'true')`
+      );
+    }
+
+    // Filtrar por nombre de campaña masiva
+    if (filters?.campaignName) {
+      query.andWhere(`chat.metadata->>'campaignName' = :campaignName`, {
+        campaignName: filters.campaignName,
+      });
+    }
 
     if (filters?.status) {
       query.andWhere('chat.status = :status', { status: filters.status });
@@ -961,6 +979,7 @@ export class ChatsService {
   async activateOnClientResponse(chatId: string): Promise<Chat> {
     const chat = await this.findOne(chatId);
     
+    // Para chats manuales
     if (chat.metadata?.createdManually && chat.metadata?.waitingClientResponse) {
       chat.metadata = {
         ...chat.metadata,
@@ -972,6 +991,19 @@ export class ChatsService {
       
       await this.chatRepository.save(chat);
       this.logger.log(`✅ Chat ${chatId} activado por respuesta del cliente`);
+    }
+
+    // Para chats de campañas masivas
+    if (chat.metadata?.source === 'mass_campaign' && !chat.metadata?.hasClientResponse) {
+      chat.metadata = {
+        ...chat.metadata,
+        hasClientResponse: true,
+        firstClientResponseAt: new Date().toISOString(),
+      };
+      chat.status = ChatStatus.ACTIVE;
+      
+      await this.chatRepository.save(chat);
+      this.logger.log(`✅ Chat de campaña masiva ${chatId} activado - Primera respuesta del cliente`);
     }
 
     return chat;

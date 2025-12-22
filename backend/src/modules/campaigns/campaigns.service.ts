@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ModuleRef } from '@nestjs/core';
 import { Repository } from 'typeorm';
 import { Campaign, CampaignStatus } from './entities/campaign.entity';
 import { PendingAgentAssignment } from './entities/pending-agent-assignment.entity';
@@ -11,6 +12,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { CreateMassCampaignDto } from './dto/create-mass-campaign.dto';
 import { ChatsService } from '../chats/chats.service';
 import { ChatStatus } from '../chats/entities/chat.entity';
+import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class CampaignsService {
@@ -23,10 +25,13 @@ export class CampaignsService {
     private userCampaignRepository: Repository<UserCampaign>,
     @InjectRepository(PendingAgentAssignment)
     private pendingAssignmentRepository: Repository<PendingAgentAssignment>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private eventEmitter: EventEmitter2,
     private readonly whatsappService: WhatsappService,
     @Inject(forwardRef(() => ChatsService))
     private readonly chatsService: ChatsService,
+    private moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -156,19 +161,34 @@ export class CampaignsService {
   /**
    * Obtener estadísticas de campañas masivas
    */
-  async getMassCampaignStats() {
-    const totalAssignments = await this.pendingAssignmentRepository.count();
-    const assignedCount = await this.pendingAssignmentRepository.count({
-      where: { assigned: true },
-    });
-    const pendingCount = await this.pendingAssignmentRepository.count({
-      where: { assigned: false },
-    });
+  async getMassCampaignStats(campaignName?: string) {
+    // Construir query base con filtro opcional de campaña
+    const baseQuery = this.pendingAssignmentRepository.createQueryBuilder('assignment');
+    
+    if (campaignName) {
+      baseQuery.where('assignment.campaign_name = :campaignName', { campaignName });
+    }
 
-    // Obtener asignaciones agrupadas por agente
-    const assignmentsByAgent = await this.pendingAssignmentRepository
+    const totalAssignments = await baseQuery.getCount();
+    
+    const assignedCount = await this.pendingAssignmentRepository
       .createQueryBuilder('assignment')
+      .where(campaignName ? 'assignment.campaign_name = :campaignName' : '1=1', { campaignName })
+      .andWhere('assignment.assigned = :assigned', { assigned: true })
+      .getCount();
+    
+    const pendingCount = await this.pendingAssignmentRepository
+      .createQueryBuilder('assignment')
+      .where(campaignName ? 'assignment.campaign_name = :campaignName' : '1=1', { campaignName })
+      .andWhere('assignment.assigned = :assigned', { assigned: false })
+      .getCount();
+
+    // Obtener asignaciones agrupadas por agente con JOIN a users para nombre
+    const assignmentsByAgentQuery = this.pendingAssignmentRepository
+      .createQueryBuilder('assignment')
+      .leftJoin(User, 'user', 'user.email = assignment.agent_email')
       .select('assignment.agent_email', 'agentEmail')
+      .addSelect('user.fullName', 'agentName')
       .addSelect('COUNT(*)', 'total')
       .addSelect(
         'SUM(CASE WHEN assignment.assigned = true THEN 1 ELSE 0 END)',
@@ -179,7 +199,24 @@ export class CampaignsService {
         'pending',
       )
       .groupBy('assignment.agent_email')
-      .orderBy('total', 'DESC')
+      .addGroupBy('user.fullName')
+      .orderBy('total', 'DESC');
+
+    if (campaignName) {
+      assignmentsByAgentQuery.where('assignment.campaign_name = :campaignName', { campaignName });
+    }
+
+    const assignmentsByAgent = await assignmentsByAgentQuery.getRawMany();
+
+    // Obtener lista de campañas únicas para el filtro
+    const campaigns = await this.pendingAssignmentRepository
+      .createQueryBuilder('assignment')
+      .select('DISTINCT assignment.campaign_name', 'campaignName')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect('MIN(assignment.created_at)', 'createdAt')
+      .where('assignment.campaign_name IS NOT NULL')
+      .groupBy('assignment.campaign_name')
+      .orderBy('MIN(assignment.created_at)', 'DESC')
       .getRawMany();
 
     return {
@@ -191,6 +228,7 @@ export class CampaignsService {
         : '0.00',
       byAgent: assignmentsByAgent.map((item) => ({
         agentEmail: item.agentEmail,
+        agentName: item.agentName || item.agentEmail, // Fallback a email si no hay nombre
         total: parseInt(item.total),
         assigned: parseInt(item.assigned),
         pending: parseInt(item.pending),
@@ -198,6 +236,11 @@ export class CampaignsService {
           item.total > 0
             ? ((item.assigned / item.total) * 100).toFixed(2)
             : '0.00',
+      })),
+      campaigns: campaigns.map((c) => ({
+        name: c.campaignName,
+        total: parseInt(c.total),
+        createdAt: c.createdAt,
       })),
     };
   }
@@ -428,6 +471,7 @@ export class CampaignsService {
                   templateVariables: recipient.variables,
                   sentAt: new Date().toISOString(),
                   agentEmail: recipient.agentEmail,
+                  hasClientResponse: false, // Inicialmente sin respuesta
                 },
               });
               
@@ -450,6 +494,30 @@ export class CampaignsService {
               recipient.variables || {},
             );
 
+            // 2.5. GUARDAR MENSAJE ENVIADO (si el chat fue creado)
+            if (chat && sendResult?.messageId) {
+              try {
+                const messagesService = this.moduleRef.get('MessagesService', { strict: false });
+                await messagesService.create({
+                  chatId: chat.id,
+                  externalId: sendResult.messageId,
+                  type: 'template',
+                  direction: 'outbound',
+                  senderType: 'bot',
+                  content: `Template: ${dto.templateSid}`,
+                  status: 'sent',
+                  metadata: {
+                    templateSid: dto.templateSid,
+                    variables: recipient.variables,
+                    campaignName: dto.name,
+                  },
+                });
+                this.logger.log(`   📨 Mensaje guardado: ${sendResult.messageId}`);
+              } catch (msgError) {
+                this.logger.warn(`   ⚠️  Error guardando mensaje: ${msgError.message}`);
+              }
+            }
+
             // 3. Si el destinatario tiene agentEmail, crear asignación pendiente
             if (recipient.agentEmail) {
               const expiresAt = new Date();
@@ -458,6 +526,7 @@ export class CampaignsService {
               await this.pendingAssignmentRepository.save({
                 phone: fullPhone,
                 agentEmail: recipient.agentEmail,
+                campaignName: dto.name, // ✅ Guardar nombre de campaña
                 templateSid: dto.templateSid,
                 expiresAt,
                 assigned: false,

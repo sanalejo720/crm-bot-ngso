@@ -5,12 +5,13 @@ import { CampaignsController } from './campaigns.controller';
 import { Campaign } from './entities/campaign.entity';
 import { PendingAgentAssignment } from './entities/pending-agent-assignment.entity';
 import { UserCampaign } from '../users/entities/user-campaign.entity';
+import { User } from '../users/entities/user.entity';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { ChatsModule } from '../chats/chats.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Campaign, UserCampaign, PendingAgentAssignment]),
+    TypeOrmModule.forFeature([Campaign, UserCampaign, PendingAgentAssignment, User]),
     WhatsappModule,
     forwardRef(() => ChatsModule),
   ],

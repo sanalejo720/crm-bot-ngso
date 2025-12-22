@@ -26,8 +26,8 @@ export const fetchMessages = createAsyncThunk(
   async (chatId: string, { rejectWithValue }) => {
     try {
       const response = await apiService.get(
-        `/messages/chat/${chatId}`,
-        { params: { limit: 100 } }
+        `/messages/chat/${chatId}`
+        // Sin límite para cargar todo el historial
       );
       const result = response.data || response;
       const messages = result.data || result;

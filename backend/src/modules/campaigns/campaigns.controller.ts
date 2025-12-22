@@ -69,8 +69,8 @@ export class CampaignsController {
   @Get('mass/stats')
   @ApiOperation({ summary: 'Obtener estadísticas de campañas masivas' })
   @RequirePermissions({ module: 'campaigns', action: 'read' })
-  async getMassCampaignStats() {
-    return this.campaignsService.getMassCampaignStats();
+  async getMassCampaignStats(@Query('campaignName') campaignName?: string) {
+    return this.campaignsService.getMassCampaignStats(campaignName);
   }
 
   @Get(':id')
