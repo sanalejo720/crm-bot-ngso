@@ -24,6 +24,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Chip,
 } from '@mui/material';
 import { Send, SmartToy, Person, Download, Receipt, Psychology, Edit, Save, Close, CheckCircle, SwapHoriz } from '@mui/icons-material';
 import { useAppDispatch, useAppSelector } from '../../hooks/redux';
@@ -596,9 +597,21 @@ export default function ChatMessages({ chat }: ChatMessagesProps) {
                 )}
               </Box>
             )}
-            <Typography variant="body2" color="text.secondary">
-              {clientPhone}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {clientPhone}
+              </Typography>
+              {/* Mostrar campaña del chat */}
+              {(chat.campaign?.name || chat.metadata?.campaignName) && (
+                <Chip
+                  size="small"
+                  label={chat.campaign?.name || chat.metadata?.campaignName}
+                  color="primary"
+                  variant="outlined"
+                  sx={{ ml: 1 }}
+                />
+              )}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
             {/* Alerta para chats manuales esperando respuesta */}

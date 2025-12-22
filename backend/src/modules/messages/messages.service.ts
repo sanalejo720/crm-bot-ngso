@@ -513,19 +513,17 @@ export class MessagesService {
         this.logger.log(`📝 Cliente actualizado con teléfono normalizado: ${normalizedPhone}`);
       }
 
-      // 3. Buscar chat existente por teléfono normalizado o crear uno nuevo
-      const existingChatsResult = await this.chatsService.findAll({
-        campaignId: whatsappNumber.campaignId,
-      });
-      const existingChats = existingChatsResult.data || [];
+      // 3. Buscar chat existente por teléfono normalizado (incluyendo chats de campañas masivas)
+      // IMPORTANTE: Buscar primero en cualquier campaña por el mismo teléfono
+      let chat = await this.chatsService.findActiveByPhone(normalizedPhone);
       
-      // Buscar tanto por teléfono normalizado como original
-      let chat = existingChats.find(c => 
-        (c.contactPhone === normalizedPhone || c.contactPhone === data.from) &&
-        (c.status === 'waiting' || c.status === 'bot' || c.status === 'active' || c.status === 'pending')
-      );
+      // Si no se encontró, buscar también con el formato original
+      if (!chat && data.from !== normalizedPhone) {
+        chat = await this.chatsService.findActiveByPhone(data.from);
+      }
 
       if (!chat) {
+        // No hay chat existente, crear uno nuevo
         this.logger.log(`💬 Creando nuevo chat para ${normalizedPhone}`);
         chat = await this.chatsService.create({
           contactName: client.fullName !== normalizedPhone ? client.fullName : normalizedPhone,
@@ -540,13 +538,24 @@ export class MessagesService {
         // Asociar el cliente al chat después de crearlo
         chat.clientId = client.id;
         await this.chatsService.update(chat.id, { clientId: client.id } as any);
-      } else if (data.from && data.from.includes('@lid') && (!chat.metadata || !chat.metadata.whatsappChatId)) {
-        // Si el chat existe pero no tiene whatsappChatId y viene con @lid, actualizarlo
-        this.logger.log(`📝 Actualizando chat ${chat.id} con whatsappChatId: ${data.from}`);
-        await this.chatsService.update(chat.id, { 
-          metadata: { ...chat.metadata, whatsappChatId: data.from } 
-        } as any);
-        chat.metadata = { ...chat.metadata, whatsappChatId: data.from };
+      } else {
+        // Se encontró chat existente - actualizar metadata si es necesario
+        this.logger.log(`📝 Chat existente encontrado: ${chat.id} (Campaña: ${chat.campaign?.name || 'Sin campaña'})`);
+        
+        // Si es un chat de campaña masiva y el cliente respondió, activarlo
+        if (chat.metadata?.source === 'mass_campaign' && !chat.metadata?.hasClientResponse) {
+          this.logger.log(`📲 Chat de campaña masiva ${chat.id} - Cliente respondió por primera vez`);
+          await this.chatsService.activateOnClientResponse(chat.id);
+        }
+        
+        // Actualizar whatsappChatId si no está presente y viene con @lid
+        if (data.from && data.from.includes('@lid') && (!chat.metadata || !chat.metadata.whatsappChatId)) {
+          this.logger.log(`📝 Actualizando chat ${chat.id} con whatsappChatId: ${data.from}`);
+          await this.chatsService.update(chat.id, { 
+            metadata: { ...chat.metadata, whatsappChatId: data.from } 
+          } as any);
+          chat.metadata = { ...chat.metadata, whatsappChatId: data.from };
+        }
       }
 
       this.logger.log(`✅ Chat encontrado/creado: ${chat.id}`);

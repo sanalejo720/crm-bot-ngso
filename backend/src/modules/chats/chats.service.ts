@@ -237,6 +237,51 @@ export class ChatsService {
   }
 
   /**
+   * Buscar chat activo por teléfono del contacto
+   * IMPORTANTE: Busca en todas las campañas para encontrar chats de mensajes masivos
+   */
+  async findActiveByPhone(contactPhone: string): Promise<Chat | null> {
+    // Normalizar el teléfono (quitar +, espacios, etc.)
+    const normalizedPhone = contactPhone.replace(/\D/g, '');
+    const phoneWithPlus = `+${normalizedPhone}`;
+    
+    // Buscar chat activo (waiting, bot, active, pending) por teléfono
+    const chat = await this.chatRepository
+      .createQueryBuilder('chat')
+      .leftJoinAndSelect('chat.campaign', 'campaign')
+      .leftJoinAndSelect('chat.whatsappNumber', 'whatsappNumber')
+      .leftJoinAndSelect('chat.assignedAgent', 'assignedAgent')
+      .where('(chat.contactPhone = :normalizedPhone OR chat.contactPhone = :phoneWithPlus OR chat.contactPhone LIKE :phoneLike)', {
+        normalizedPhone,
+        phoneWithPlus,
+        phoneLike: `%${normalizedPhone}%`,
+      })
+      .andWhere('chat.status IN (:...statuses)', {
+        statuses: [ChatStatus.WAITING, ChatStatus.BOT, ChatStatus.ACTIVE, ChatStatus.PENDING],
+      })
+      .orderBy('chat.createdAt', 'DESC')
+      .getOne();
+    
+    if (chat) {
+      this.logger.log(`📱 Chat encontrado para ${contactPhone}: ${chat.id} (status: ${chat.status})`);
+      
+      // Cargar deudor manualmente si existe
+      if (chat.debtorId) {
+        const debtor = await this.debtorRepository.findOne({
+          where: { id: chat.debtorId },
+        });
+        if (debtor) {
+          (chat as any).debtor = debtor;
+        }
+      }
+    } else {
+      this.logger.log(`📱 No se encontró chat activo para ${contactPhone}`);
+    }
+    
+    return chat;
+  }
+
+  /**
    * Actualizar chat
    */
   async update(id: string, updateChatDto: UpdateChatDto): Promise<Chat> {

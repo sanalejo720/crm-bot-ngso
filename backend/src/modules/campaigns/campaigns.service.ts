@@ -478,9 +478,15 @@ export class CampaignsService {
               results.chatsCreated++;
               this.logger.log(`   💬 Chat creado: ${chat.id} para ${fullPhone}`);
             } catch (chatError) {
-              // Si el chat ya existe, continuar
+              // Si el chat ya existe, buscar el chat existente para guardar el mensaje
               if (chatError.message?.includes('ya existe')) {
-                this.logger.log(`   ℹ️  Chat ya existe para ${fullPhone}, continuando...`);
+                this.logger.log(`   ℹ️  Chat ya existe para ${fullPhone}, buscando chat existente...`);
+                // Buscar chat existente por teléfono usando findActiveByPhone
+                const existingChat = await this.chatsService.findActiveByPhone(fullPhone);
+                if (existingChat) {
+                  chat = existingChat;
+                  this.logger.log(`   ✅ Chat existente encontrado: ${chat.id}`);
+                }
               } else {
                 throw chatError;
               }

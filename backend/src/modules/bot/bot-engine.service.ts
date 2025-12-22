@@ -858,18 +858,23 @@ export class BotEngineService {
   }
 
   /**
-   * Buscar agente disponible (primero busca por campaña, luego cualquiera disponible)
-   * IMPORTANTE: Solo considera agentes que han iniciado jornada laboral hoy
+   * Buscar agente disponible para la campaña del chat
+   * IMPORTANTE: Solo asigna a agentes de la campaña correspondiente
+   * Si no hay agentes disponibles de la campaña, NO asigna a otros (queda en espera)
    */
   private async findAvailableAgent(campaignId?: string): Promise<User | null> {
-    // Si hay campaña, primero intentar con agentes de esa campaña
+    // Si hay campaña, SOLO buscar agentes de esa campaña
     if (campaignId) {
       const campaignAgent = await this.findAvailableAgentForCampaign(campaignId);
       if (campaignAgent) {
         return campaignAgent;
       }
+      // Si no hay agente disponible de la campaña, NO buscar en otras campañas
+      this.logger.warn(`⚠️ No hay agentes disponibles para campaña ${campaignId}. Chat quedará en espera.`);
+      return null;
     }
 
+    // Solo si NO hay campaña asignada, buscar cualquier agente disponible
     // Obtener fecha de hoy (solo fecha, sin hora)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -890,7 +895,7 @@ export class BotEngineService {
       .getOne();
 
     if (agent) {
-      this.logger.log(`✅ Agente disponible encontrado (general con jornada activa): ${agent.fullName}`);
+      this.logger.log(`✅ Agente disponible encontrado (sin campaña específica): ${agent.fullName}`);
       return agent;
     }
 

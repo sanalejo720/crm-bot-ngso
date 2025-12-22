@@ -206,6 +206,7 @@ export class BotListenerService {
           lastPaymentDate: debtor.lastPaymentDate,
           promiseDate: debtor.promiseDate,
           metadata: debtor.metadata,
+          campaignId: debtor.campaignId, // NUEVO: Incluir campaña del deudor
         },
       };
     } catch (error) {
@@ -219,6 +220,7 @@ export class BotListenerService {
 
   /**
    * Actualizar datos del chat con información del deudor
+   * IMPORTANTE: También actualiza la campaña del chat basándose en la campaña del deudor
    */
   private async updateChatWithDebtorInfo(chatId: string, debtor: any): Promise<void> {
     try {
@@ -276,23 +278,45 @@ export class BotListenerService {
         updateData.clientId = client.id;
       }
 
+      // NUEVO: Si el deudor tiene campaña asignada, actualizar el chat con esa campaña
+      if (debtor.campaignId) {
+        updateData.campaignId = debtor.campaignId;
+        this.logger.log(`📊 Asignando chat a campaña del deudor: ${debtor.campaignId}`);
+        
+        // Obtener nombre de campaña para metadata
+        const campaign = await this.campaignRepository.findOne({ where: { id: debtor.campaignId } });
+        if (campaign) {
+          this.logger.log(`📊 Campaña detectada: ${campaign.name}`);
+        }
+      }
+
       // También guardar debtorId directamente en metadata del chat
       const chat = await this.chatsService.findOne(chatId);
+      
+      // Obtener nombre de campaña si existe
+      let campaignName = chat.campaign?.name || null;
+      if (debtor.campaignId && !campaignName) {
+        const campaign = await this.campaignRepository.findOne({ where: { id: debtor.campaignId } });
+        campaignName = campaign?.name || null;
+      }
+
       updateData.metadata = {
         ...chat.metadata,
         debtorId: debtor.id,
         debtorFound: true,
+        campaignName: campaignName,
         debtorInfo: {
           fullName: debtor.fullName,
           documentType: debtor.documentType,
           documentNumber: debtor.documentNumber,
           debtAmount: debtor.debtAmount,
           daysOverdue: debtor.daysOverdue,
+          campaignId: debtor.campaignId,
         },
       };
 
       await this.chatsService.update(chatId, updateData);
-      this.logger.log(`✅ Chat ${chatId} actualizado con datos de ${debtor.fullName}`);
+      this.logger.log(`✅ Chat ${chatId} actualizado con datos de ${debtor.fullName}${campaignName ? ` - Campaña: ${campaignName}` : ''}`);
 
     } catch (error) {
       this.logger.error(`Error actualizando chat con deudor: ${error.message}`, error.stack);
